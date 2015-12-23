@@ -43,7 +43,7 @@ import org.elasticsearch.index.flush.FlushStats;
 import org.elasticsearch.index.get.GetStats;
 import org.elasticsearch.index.indexing.IndexingStats;
 import org.elasticsearch.index.merge.MergeStats;
-import org.elasticsearch.index.percolator.stats.PercolateStats;
+import org.elasticsearch.index.percolator.PercolateStats;
 import org.elasticsearch.index.refresh.RefreshStats;
 import org.elasticsearch.index.search.stats.SearchStats;
 import org.elasticsearch.index.suggest.stats.SuggestStats;
@@ -53,7 +53,10 @@ import org.elasticsearch.monitor.jvm.JvmInfo;
 import org.elasticsearch.monitor.jvm.JvmStats;
 import org.elasticsearch.monitor.os.OsStats;
 import org.elasticsearch.monitor.process.ProcessStats;
-import org.elasticsearch.rest.*;
+import org.elasticsearch.rest.RestChannel;
+import org.elasticsearch.rest.RestController;
+import org.elasticsearch.rest.RestRequest;
+import org.elasticsearch.rest.RestResponse;
 import org.elasticsearch.rest.action.support.RestActionListener;
 import org.elasticsearch.rest.action.support.RestResponseListener;
 import org.elasticsearch.rest.action.support.RestTable;
@@ -130,6 +133,7 @@ public class RestNodesAction extends AbstractCatAction {
         table.addCell("file_desc.percent", "default:false;alias:fdp,fileDescriptorPercent;text-align:right;desc:used file descriptor ratio");
         table.addCell("file_desc.max", "default:false;alias:fdm,fileDescriptorMax;text-align:right;desc:max file descriptors");
 
+        table.addCell("cpu", "alias:cpu;text-align:right;desc:recent cpu usage");
         table.addCell("load", "alias:l;text-align:right;desc:most recent load avg");
         table.addCell("uptime", "default:false;alias:u;text-align:right;desc:node uptime");
         table.addCell("node.role", "alias:r,role,dc,nodeRole;desc:d:data node, c:client node");
@@ -166,6 +170,7 @@ public class RestNodesAction extends AbstractCatAction {
         table.addCell("indexing.index_current", "alias:iic,indexingIndexCurrent;default:false;text-align:right;desc:number of current indexing ops");
         table.addCell("indexing.index_time", "alias:iiti,indexingIndexTime;default:false;text-align:right;desc:time spent in indexing");
         table.addCell("indexing.index_total", "alias:iito,indexingIndexTotal;default:false;text-align:right;desc:number of indexing ops");
+        table.addCell("indexing.index_failed", "alias:iif,indexingIndexFailed;default:false;text-align:right;desc:number of failed indexing ops");
 
         table.addCell("merges.current", "alias:mc,mergesCurrent;default:false;text-align:right;desc:number of current merges");
         table.addCell("merges.current_docs", "alias:mcd,mergesCurrentDocs;default:false;text-align:right;desc:number of current merging docs");
@@ -244,7 +249,7 @@ public class RestNodesAction extends AbstractCatAction {
             }
 
             table.addCell(node.getVersion().number());
-            table.addCell(info == null ? null : info.getBuild().hashShort());
+            table.addCell(info == null ? null : info.getBuild().shortHash());
             table.addCell(jvmInfo == null ? null : jvmInfo.version());
             table.addCell(fsInfo == null ? null : fsInfo.getTotal().getAvailable());
             table.addCell(jvmStats == null ? null : jvmStats.getMem().getHeapUsed());
@@ -257,7 +262,8 @@ public class RestNodesAction extends AbstractCatAction {
             table.addCell(processStats == null ? null : calculatePercentage(processStats.getOpenFileDescriptors(), processStats.getMaxFileDescriptors()));
             table.addCell(processStats == null ? null : processStats.getMaxFileDescriptors());
 
-            table.addCell(osStats == null ? null : String.format(Locale.ROOT, "%.2f", osStats.getLoadAverage()));
+            table.addCell(osStats == null ? null : Short.toString(osStats.getCpu().getPercent()));
+            table.addCell(osStats == null ? null : String.format(Locale.ROOT, "%.2f", osStats.getCpu().getLoadAverage()));
             table.addCell(jvmStats == null ? null : jvmStats.getUptime());
             table.addCell(node.clientNode() ? "c" : node.dataNode() ? "d" : "-");
             table.addCell(masterId == null ? "x" : masterId.equals(node.id()) ? "*" : node.masterNode() ? "m" : "-");
@@ -300,6 +306,7 @@ public class RestNodesAction extends AbstractCatAction {
             table.addCell(indexingStats == null ? null : indexingStats.getTotal().getIndexCurrent());
             table.addCell(indexingStats == null ? null : indexingStats.getTotal().getIndexTime());
             table.addCell(indexingStats == null ? null : indexingStats.getTotal().getIndexCount());
+            table.addCell(indexingStats == null ? null : indexingStats.getTotal().getIndexFailedCount());
 
             MergeStats mergeStats = indicesStats == null ? null : indicesStats.getMerge();
             table.addCell(mergeStats == null ? null : mergeStats.getCurrent());
@@ -360,7 +367,7 @@ public class RestNodesAction extends AbstractCatAction {
      * Calculate the percentage of {@code used} from the {@code max} number.
      * @param used The currently used number.
      * @param max The maximum number.
-     * @return 0 if {@code max} is <= 0. Otherwise 100 * {@code used} / {@code max}.
+     * @return 0 if {@code max} is &lt;= 0. Otherwise 100 * {@code used} / {@code max}.
      */
     private short calculatePercentage(long used, long max) {
         return max <= 0 ? 0 : (short)((100d * used) / max);

@@ -19,15 +19,43 @@
 
 package org.elasticsearch.common.lucene;
 
-import com.google.common.collect.Iterables;
 import org.apache.lucene.analysis.core.KeywordAnalyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.DocValuesFormat;
 import org.apache.lucene.codecs.PostingsFormat;
-import org.apache.lucene.index.*;
-import org.apache.lucene.search.*;
-import org.apache.lucene.store.*;
+import org.apache.lucene.index.CorruptIndexException;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexCommit;
+import org.apache.lucene.index.IndexFileNames;
+import org.apache.lucene.index.IndexFormatTooNewException;
+import org.apache.lucene.index.IndexFormatTooOldException;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.NoMergePolicy;
+import org.apache.lucene.index.SegmentCommitInfo;
+import org.apache.lucene.index.SegmentInfos;
+import org.apache.lucene.search.Collector;
+import org.apache.lucene.search.DocIdSetIterator;
+import org.apache.lucene.search.Explanation;
+import org.apache.lucene.search.FieldDoc;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.LeafCollector;
+import org.apache.lucene.search.Query;
+import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.search.Scorer;
+import org.apache.lucene.search.SimpleCollector;
+import org.apache.lucene.search.SortField;
+import org.apache.lucene.search.TimeLimitingCollector;
+import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.search.TopFieldDocs;
+import org.apache.lucene.search.TwoPhaseIterator;
+import org.apache.lucene.search.Weight;
+import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.IOContext;
+import org.apache.lucene.store.IndexInput;
+import org.apache.lucene.store.Lock;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.Counter;
@@ -40,16 +68,19 @@ import org.elasticsearch.common.SuppressForbidden;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.logging.ESLogger;
+import org.elasticsearch.common.util.iterable.Iterables;
 import org.elasticsearch.index.analysis.AnalyzerScope;
 import org.elasticsearch.index.analysis.NamedAnalyzer;
 import org.elasticsearch.index.fielddata.IndexFieldData;
-import org.elasticsearch.search.internal.SearchContext;
 
 import java.io.IOException;
 import java.text.ParseException;
-import java.util.*;
-
-import static org.elasticsearch.common.lucene.search.NoopCollector.NOOP_COLLECTOR;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  *
@@ -60,9 +91,9 @@ public class Lucene {
     public static final Version VERSION = Version.LATEST;
     public static final Version ANALYZER_VERSION = VERSION;
     public static final Version QUERYPARSER_VERSION = VERSION;
-    public static final String LATEST_DOC_VALUES_FORMAT = "Lucene50";
+    public static final String LATEST_DOC_VALUES_FORMAT = "Lucene54";
     public static final String LATEST_POSTINGS_FORMAT = "Lucene50";
-    public static final String LATEST_CODEC = "Lucene53";
+    public static final String LATEST_CODEC = "Lucene54";
 
     static {
         Deprecated annotation = PostingsFormat.forName(LATEST_POSTINGS_FORMAT).getClass().getAnnotation(Deprecated.class);
@@ -107,7 +138,7 @@ public class Lucene {
         for (SegmentCommitInfo info : infos) {
             list.add(info.files());
         }
-        return Iterables.concat(list);
+        return Iterables.flatten(list);
     }
 
     /**
@@ -226,27 +257,6 @@ public class Lucene {
         }.run();
     }
 
-    public static long count(IndexSearcher searcher, Query query) throws IOException {
-        return searcher.count(query);
-    }
-
-    /**
-     * Performs a count on the <code>searcher</code> for <code>query</code>. Terminates
-     * early when the count has reached <code>terminateAfter</code>
-     */
-    public static long count(IndexSearcher searcher, Query query, int terminateAfterCount) throws IOException {
-        EarlyTerminatingCollector countCollector = createCountBasedEarlyTerminatingCollector(terminateAfterCount);
-        countWithEarlyTermination(searcher, query, countCollector);
-        return countCollector.count();
-    }
-
-    /**
-     * Creates count based early termination collector with a threshold of <code>maxCountHits</code>
-     */
-    public final static EarlyTerminatingCollector createCountBasedEarlyTerminatingCollector(int maxCountHits) {
-        return new EarlyTerminatingCollector(maxCountHits);
-    }
-
     /**
      * Wraps <code>delegate</code> with count based early termination collector with a threshold of <code>maxCountHits</code>
      */
@@ -262,97 +272,26 @@ public class Lucene {
     }
 
     /**
-     * Performs an exists (count > 0) query on the <code>searcher</code> for <code>query</code>
-     * with <code>filter</code> using the given <code>collector</code>
-     *
-     * The <code>collector</code> can be instantiated using <code>Lucene.createExistsCollector()</code>
+     * Check whether there is one or more documents matching the provided query.
      */
-    public static boolean exists(IndexSearcher searcher, Query query, Filter filter,
-                                 EarlyTerminatingCollector collector) throws IOException {
-        collector.reset();
-        countWithEarlyTermination(searcher, filter, query, collector);
-        return collector.exists();
-    }
-
-
-    /**
-     * Performs an exists (count > 0) query on the <code>searcher</code> for <code>query</code>
-     * using the given <code>collector</code>
-     *
-     * The <code>collector</code> can be instantiated using <code>Lucene.createExistsCollector()</code>
-     */
-    public static boolean exists(IndexSearcher searcher, Query query, EarlyTerminatingCollector collector) throws IOException {
-        collector.reset();
-        countWithEarlyTermination(searcher, query, collector);
-        return collector.exists();
-    }
-
-    /**
-     * Calls <code>countWithEarlyTermination(searcher, null, query, collector)</code>
-     */
-    public static boolean countWithEarlyTermination(IndexSearcher searcher, Query query,
-                                                  EarlyTerminatingCollector collector) throws IOException {
-        return countWithEarlyTermination(searcher, null, query, collector);
-    }
-
-    /**
-     * Performs a count on <code>query</code> and <code>filter</code> with early termination using <code>searcher</code>.
-     * The early termination threshold is specified by the provided <code>collector</code>
-     */
-    public static boolean countWithEarlyTermination(IndexSearcher searcher, Filter filter, Query query,
-                                                        EarlyTerminatingCollector collector) throws IOException {
-        try {
-            if (filter == null) {
-                searcher.search(query, collector);
-            } else {
-                searcher.search(query, filter, collector);
+    public static boolean exists(IndexSearcher searcher, Query query) throws IOException {
+        final Weight weight = searcher.createNormalizedWeight(query, false);
+        // the scorer API should be more efficient at stopping after the first
+        // match than the bulk scorer API
+        for (LeafReaderContext context : searcher.getIndexReader().leaves()) {
+            final Scorer scorer = weight.scorer(context);
+            if (scorer == null) {
+                continue;
             }
-        } catch (EarlyTerminationException e) {
-            // early termination
-            return true;
+            final Bits liveDocs = context.reader().getLiveDocs();
+            final DocIdSetIterator iterator = scorer.iterator();
+            for (int doc = iterator.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = iterator.nextDoc()) {
+                if (liveDocs == null || liveDocs.get(doc)) {
+                    return true;
+                }
+            }
         }
         return false;
-    }
-
-    /**
-     * Performs an exists (count > 0) query on the searcher from the <code>searchContext</code> for <code>query</code>
-     * using the given <code>collector</code>
-     *
-     * The <code>collector</code> can be instantiated using <code>Lucene.createExistsCollector()</code>
-     */
-    public static boolean exists(SearchContext searchContext, Query query, EarlyTerminatingCollector collector) throws IOException {
-        collector.reset();
-        try {
-            searchContext.searcher().search(query, collector);
-        } catch (EarlyTerminationException e) {
-            // ignore, just early termination...
-        } finally {
-            searchContext.clearReleasables(SearchContext.Lifetime.COLLECTION);
-        }
-        return collector.exists();
-    }
-
-    /**
-     * Creates an {@link org.elasticsearch.common.lucene.Lucene.EarlyTerminatingCollector}
-     * with a threshold of <code>1</code>
-     */
-    public final static EarlyTerminatingCollector createExistsCollector() {
-        return createCountBasedEarlyTerminatingCollector(1);
-    }
-
-    /**
-     * Closes the index writer, returning <tt>false</tt> if it failed to close.
-     */
-    public static boolean safeClose(IndexWriter writer) {
-        if (writer == null) {
-            return true;
-        }
-        try {
-            writer.close();
-            return true;
-        } catch (Throwable e) {
-            return false;
-        }
     }
 
     public static TopDocs readTopDocs(StreamInput in) throws IOException {
@@ -609,19 +548,11 @@ public class Lucene {
         private int count = 0;
         private LeafCollector leafCollector;
 
-        EarlyTerminatingCollector(int maxCountHits) {
-            this.maxCountHits = maxCountHits;
-            this.delegate = NOOP_COLLECTOR;
-        }
-
         EarlyTerminatingCollector(final Collector delegate, int maxCountHits) {
             this.maxCountHits = maxCountHits;
-            this.delegate = (delegate == null) ? NOOP_COLLECTOR : delegate;
+            this.delegate = Objects.requireNonNull(delegate);
         }
 
-        public void reset() {
-            count = 0;
-        }
         public int count() {
             return count;
         }
@@ -694,7 +625,7 @@ public class Lucene {
 
     /**
      * Returns <tt>true</tt> iff the given exception or
-     * one of it's causes is an instance of {@link CorruptIndexException}, 
+     * one of it's causes is an instance of {@link CorruptIndexException},
      * {@link IndexFormatTooOldException}, or {@link IndexFormatTooNewException} otherwise <tt>false</tt>.
      */
     public static boolean isCorruptionException(Throwable t) {
@@ -737,19 +668,11 @@ public class Lucene {
                 throw new IllegalStateException(message);
             }
             @Override
-            public int advance(int arg0) throws IOException {
-                throw new IllegalStateException(message);
-            }
-            @Override
-            public long cost() {
-                throw new IllegalStateException(message);
-            }
-            @Override
             public int docID() {
                 throw new IllegalStateException(message);
             }
             @Override
-            public int nextDoc() throws IOException {
+            public DocIdSetIterator iterator() {
                 throw new IllegalStateException(message);
             }
         };
@@ -819,13 +742,6 @@ public class Lucene {
     }
 
     /**
-     * Is it an empty {@link DocIdSet}?
-     */
-    public static boolean isEmpty(@Nullable DocIdSet set) {
-        return set == null || set == DocIdSet.EMPTY;
-    }
-
-    /**
      * Given a {@link Scorer}, return a {@link Bits} instance that will match
      * all documents contained in the set. Note that the returned {@link Bits}
      * instance MUST be consumed in order.
@@ -834,10 +750,10 @@ public class Lucene {
         if (scorer == null) {
             return new Bits.MatchNoBits(maxDoc);
         }
-        final TwoPhaseIterator twoPhase = scorer.asTwoPhaseIterator();
+        final TwoPhaseIterator twoPhase = scorer.twoPhaseIterator();
         final DocIdSetIterator iterator;
         if (twoPhase == null) {
-            iterator = scorer;
+            iterator = scorer.iterator();
         } else {
             iterator = twoPhase.approximation();
         }

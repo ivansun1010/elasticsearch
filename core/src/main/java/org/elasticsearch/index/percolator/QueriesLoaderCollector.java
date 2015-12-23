@@ -18,8 +18,6 @@
  */
 package org.elasticsearch.index.percolator;
 
-import com.google.common.collect.Maps;
-
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.Query;
@@ -37,13 +35,14 @@ import org.elasticsearch.index.mapper.Uid;
 import org.elasticsearch.index.mapper.internal.UidFieldMapper;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  */
 final class QueriesLoaderCollector extends SimpleCollector {
 
-    private final Map<BytesRef, Query> queries = Maps.newHashMap();
+    private final Map<BytesRef, Query> queries = new HashMap<>();
     private final FieldsVisitor fieldsVisitor = new FieldsVisitor(true);
     private final PercolatorQueriesRegistry percolator;
     private final IndexFieldData<?> uidFieldData;
@@ -55,7 +54,7 @@ final class QueriesLoaderCollector extends SimpleCollector {
     QueriesLoaderCollector(PercolatorQueriesRegistry percolator, ESLogger logger, MapperService mapperService, IndexFieldDataService indexFieldDataService) {
         this.percolator = percolator;
         this.logger = logger;
-        final MappedFieldType uidMapper = mapperService.smartNameFieldType(UidFieldMapper.NAME);
+        final MappedFieldType uidMapper = mapperService.fullName(UidFieldMapper.NAME);
         this.uidFieldData = indexFieldDataService.getForField(uidMapper);
     }
 

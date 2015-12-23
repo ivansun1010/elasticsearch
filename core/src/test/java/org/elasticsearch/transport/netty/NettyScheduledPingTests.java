@@ -18,7 +18,6 @@
  */
 package org.elasticsearch.transport.netty;
 
-import com.google.common.collect.ImmutableMap;
 import org.elasticsearch.Version;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
@@ -29,25 +28,28 @@ import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.transport.MockTransportService;
 import org.elasticsearch.threadpool.ThreadPool;
-import org.elasticsearch.transport.*;
-import org.junit.Test;
+import org.elasticsearch.transport.BaseTransportResponseHandler;
+import org.elasticsearch.transport.TransportChannel;
+import org.elasticsearch.transport.TransportException;
+import org.elasticsearch.transport.TransportRequest;
+import org.elasticsearch.transport.TransportRequestHandler;
+import org.elasticsearch.transport.TransportRequestOptions;
+import org.elasticsearch.transport.TransportResponse;
+import org.elasticsearch.transport.TransportResponseOptions;
 
 import java.io.IOException;
 
+import static java.util.Collections.emptyMap;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 
 /**
  */
 public class NettyScheduledPingTests extends ESTestCase {
-
-    @Test
     public void testScheduledPing() throws Exception {
         ThreadPool threadPool = new ThreadPool(getClass().getName());
 
-        int startPort = 11000 + randomIntBetween(0, 255);
-        int endPort = startPort + 10;
-        Settings settings = Settings.builder().put(NettyTransport.PING_SCHEDULE, "5ms").put("transport.tcp.port", startPort + "-" + endPort).build();
+        Settings settings = Settings.builder().put(NettyTransport.PING_SCHEDULE, "5ms").put("transport.tcp.port", 0).build();
 
         final NettyTransport nettyA = new NettyTransport(settings, threadPool, new NetworkService(settings), BigArrays.NON_RECYCLING_INSTANCE, Version.CURRENT, new NamedWriteableRegistry());
         MockTransportService serviceA = new MockTransportService(settings, nettyA, threadPool);
@@ -57,8 +59,8 @@ public class NettyScheduledPingTests extends ESTestCase {
         MockTransportService serviceB = new MockTransportService(settings, nettyB, threadPool);
         serviceB.start();
 
-        DiscoveryNode nodeA = new DiscoveryNode("TS_A", "TS_A", serviceA.boundAddress().publishAddress(), ImmutableMap.<String, String>of(), Version.CURRENT);
-        DiscoveryNode nodeB = new DiscoveryNode("TS_B", "TS_B", serviceB.boundAddress().publishAddress(), ImmutableMap.<String, String>of(), Version.CURRENT);
+        DiscoveryNode nodeA = new DiscoveryNode("TS_A", "TS_A", serviceA.boundAddress().publishAddress(), emptyMap(), Version.CURRENT);
+        DiscoveryNode nodeB = new DiscoveryNode("TS_B", "TS_B", serviceB.boundAddress().publishAddress(), emptyMap(), Version.CURRENT);
 
         serviceA.connectToNode(nodeB);
         serviceB.connectToNode(nodeA);
@@ -73,11 +75,11 @@ public class NettyScheduledPingTests extends ESTestCase {
         assertThat(nettyA.scheduledPing.failedPings.count(), equalTo(0l));
         assertThat(nettyB.scheduledPing.failedPings.count(), equalTo(0l));
 
-        serviceA.registerRequestHandler("sayHello", TransportRequest.Empty.class, ThreadPool.Names.GENERIC, new TransportRequestHandler<TransportRequest.Empty>() {
+        serviceA.registerRequestHandler("sayHello", TransportRequest.Empty::new, ThreadPool.Names.GENERIC, new TransportRequestHandler<TransportRequest.Empty>() {
             @Override
             public void messageReceived(TransportRequest.Empty request, TransportChannel channel) {
                 try {
-                    channel.sendResponse(TransportResponse.Empty.INSTANCE, TransportResponseOptions.options());
+                    channel.sendResponse(TransportResponse.Empty.INSTANCE, TransportResponseOptions.EMPTY);
                 } catch (IOException e) {
                     e.printStackTrace();
                     assertThat(e.getMessage(), false, equalTo(true));
@@ -89,7 +91,7 @@ public class NettyScheduledPingTests extends ESTestCase {
         int rounds = scaledRandomIntBetween(100, 5000);
         for (int i = 0; i < rounds; i++) {
             serviceB.submitRequest(nodeA, "sayHello",
-                    TransportRequest.Empty.INSTANCE, TransportRequestOptions.options().withCompress(randomBoolean()), new BaseTransportResponseHandler<TransportResponse.Empty>() {
+                    TransportRequest.Empty.INSTANCE, TransportRequestOptions.builder().withCompress(randomBoolean()).build(), new BaseTransportResponseHandler<TransportResponse.Empty>() {
                         @Override
                         public TransportResponse.Empty newInstance() {
                             return TransportResponse.Empty.INSTANCE;

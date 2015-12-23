@@ -21,42 +21,63 @@ package org.elasticsearch.cluster;
 
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthResponse;
 import org.elasticsearch.client.Client;
+import org.elasticsearch.cluster.metadata.MetaData;
 import org.elasticsearch.common.Priority;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.discovery.Discovery;
 import org.elasticsearch.discovery.DiscoverySettings;
+import org.elasticsearch.discovery.zen.ZenDiscovery;
 import org.elasticsearch.discovery.zen.elect.ElectMasterService;
+import org.elasticsearch.discovery.zen.fd.FaultDetection;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.test.ESIntegTestCase;
 import org.elasticsearch.test.ESIntegTestCase.ClusterScope;
+import org.elasticsearch.test.ESIntegTestCase.Scope;
+import org.elasticsearch.test.disruption.NetworkDelaysPartition;
 import org.elasticsearch.test.junit.annotations.TestLogging;
-import org.junit.Test;
+import org.elasticsearch.test.transport.MockTransportService;
 
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import static org.elasticsearch.common.settings.Settings.settingsBuilder;
-import static org.elasticsearch.test.ESIntegTestCase.Scope;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertHitCount;
-import static org.hamcrest.Matchers.empty;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertNoTimeout;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.isOneOf;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 
 @ClusterScope(scope = Scope.TEST, numDataNodes = 0)
 @ESIntegTestCase.SuppressLocalMode
 public class MinimumMasterNodesIT extends ESIntegTestCase {
 
-    @Test
+    @Override
+    protected Collection<Class<? extends Plugin>> nodePlugins() {
+        final HashSet<Class<? extends Plugin>> classes = new HashSet<>(super.nodePlugins());
+        classes.add(MockTransportService.TestPlugin.class);
+        return classes;
+    }
+
     @TestLogging("cluster.service:TRACE,discovery.zen:TRACE,gateway:TRACE,transport.tracer:TRACE")
-    public void simpleMinimumMasterNodes() throws Exception {
+    public void testSimpleMinimumMasterNodes() throws Exception {
 
         Settings settings = settingsBuilder()
                 .put("discovery.type", "zen")
                 .put("discovery.zen.minimum_master_nodes", 2)
-                .put("discovery.zen.ping_timeout", "200ms")
+                .put(ZenDiscovery.SETTING_PING_TIMEOUT, "200ms")
                 .put("discovery.initial_state_timeout", "500ms")
                 .build();
 
@@ -96,7 +117,7 @@ public class MinimumMasterNodesIT extends ESIntegTestCase {
 
         logger.info("--> verify we the data back");
         for (int i = 0; i < 10; i++) {
-            assertThat(client().prepareCount().setQuery(QueryBuilders.matchAllQuery()).execute().actionGet().getCount(), equalTo(100l));
+            assertThat(client().prepareSearch().setSize(0).setQuery(QueryBuilders.matchAllQuery()).execute().actionGet().getHits().totalHits(), equalTo(100l));
         }
 
         internalCluster().stopCurrentMasterNode();
@@ -127,7 +148,7 @@ public class MinimumMasterNodesIT extends ESIntegTestCase {
 
         logger.info("--> verify we the data back after cluster reform");
         for (int i = 0; i < 10; i++) {
-            assertHitCount(client().prepareCount().setQuery(QueryBuilders.matchAllQuery()).execute().actionGet(), 100);
+            assertHitCount(client().prepareSearch().setSize(0).setQuery(QueryBuilders.matchAllQuery()).execute().actionGet(), 100);
         }
 
         internalCluster().stopRandomNonMasterNode();
@@ -160,16 +181,15 @@ public class MinimumMasterNodesIT extends ESIntegTestCase {
 
         logger.info("--> verify we the data back");
         for (int i = 0; i < 10; i++) {
-            assertHitCount(client().prepareCount().setQuery(QueryBuilders.matchAllQuery()).execute().actionGet(), 100);
+            assertHitCount(client().prepareSearch().setSize(0).setQuery(QueryBuilders.matchAllQuery()).execute().actionGet(), 100);
         }
     }
 
-    @Test
-    public void multipleNodesShutdownNonMasterNodes() throws Exception {
+    public void testMultipleNodesShutdownNonMasterNodes() throws Exception {
         Settings settings = settingsBuilder()
                 .put("discovery.type", "zen")
                 .put("discovery.zen.minimum_master_nodes", 3)
-                .put("discovery.zen.ping_timeout", "1s")
+                .put(ZenDiscovery.SETTING_PING_TIMEOUT, "1s")
                 .put("discovery.initial_state_timeout", "500ms")
                 .build();
 
@@ -213,7 +233,7 @@ public class MinimumMasterNodesIT extends ESIntegTestCase {
         refresh();
         logger.info("--> verify we the data back");
         for (int i = 0; i < 10; i++) {
-            assertHitCount(client().prepareCount().setQuery(QueryBuilders.matchAllQuery()).execute().actionGet(), 100);
+            assertHitCount(client().prepareSearch().setSize(0).setQuery(QueryBuilders.matchAllQuery()).execute().actionGet(), 100);
         }
 
         internalCluster().stopRandomNonMasterNode();
@@ -237,15 +257,14 @@ public class MinimumMasterNodesIT extends ESIntegTestCase {
 
         logger.info("--> verify we the data back");
         for (int i = 0; i < 10; i++) {
-            assertHitCount(client().prepareCount().setQuery(QueryBuilders.matchAllQuery()).execute().actionGet(), 100);
+            assertHitCount(client().prepareSearch().setSize(0).setQuery(QueryBuilders.matchAllQuery()).execute().actionGet(), 100);
         }
     }
 
-    @Test
-    public void dynamicUpdateMinimumMasterNodes() throws Exception {
+    public void testDynamicUpdateMinimumMasterNodes() throws Exception {
         Settings settings = settingsBuilder()
                 .put("discovery.type", "zen")
-                .put("discovery.zen.ping_timeout", "400ms")
+                .put(ZenDiscovery.SETTING_PING_TIMEOUT, "400ms")
                 .put("discovery.initial_state_timeout", "500ms")
                 .build();
 
@@ -271,7 +290,7 @@ public class MinimumMasterNodesIT extends ESIntegTestCase {
         assertNoMasterBlockOnAllNodes();
 
         logger.info("--> bringing another node up");
-        internalCluster().startNode(settingsBuilder().put(settings).put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES, 2).build());
+        internalCluster().startNode(settingsBuilder().put(settings).put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES_SETTING.getKey(), 2).build());
         clusterHealthResponse = client().admin().cluster().prepareHealth().setWaitForEvents(Priority.LANGUID).setWaitForNodes("2").get();
         assertThat(clusterHealthResponse.isTimedOut(), equalTo(false));
     }
@@ -299,17 +318,16 @@ public class MinimumMasterNodesIT extends ESIntegTestCase {
         );
     }
 
-    @Test
     public void testCanNotBringClusterDown() throws ExecutionException, InterruptedException {
         int nodeCount = scaledRandomIntBetween(1, 5);
         Settings.Builder settings = settingsBuilder()
                 .put("discovery.type", "zen")
-                .put("discovery.zen.ping_timeout", "200ms")
+                .put(ZenDiscovery.SETTING_PING_TIMEOUT, "200ms")
                 .put("discovery.initial_state_timeout", "500ms");
 
         // set an initial value which is at least quorum to avoid split brains during initial startup
         int initialMinMasterNodes = randomIntBetween(nodeCount / 2 + 1, nodeCount);
-        settings.put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES, initialMinMasterNodes);
+        settings.put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES_SETTING.getKey(), initialMinMasterNodes);
 
 
         logger.info("--> starting [{}] nodes. min_master_nodes set to [{}]", nodeCount, initialMinMasterNodes);
@@ -320,21 +338,89 @@ public class MinimumMasterNodesIT extends ESIntegTestCase {
 
         int updateCount = randomIntBetween(1, nodeCount);
 
-        logger.info("--> updating [{}] to [{}]", ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES, updateCount);
+        logger.info("--> updating [{}] to [{}]", ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES_SETTING.getKey(), updateCount);
         assertAcked(client().admin().cluster().prepareUpdateSettings()
-                .setPersistentSettings(settingsBuilder().put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES, updateCount)));
+                .setPersistentSettings(settingsBuilder().put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES_SETTING.getKey(), updateCount)));
 
         logger.info("--> verifying no node left and master is up");
         assertFalse(client().admin().cluster().prepareHealth().setWaitForNodes(Integer.toString(nodeCount)).get().isTimedOut());
 
         updateCount = nodeCount + randomIntBetween(1, 2000);
-        logger.info("--> trying to updating [{}] to [{}]", ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES, updateCount);
-        assertThat(client().admin().cluster().prepareUpdateSettings()
-                        .setPersistentSettings(settingsBuilder().put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES, updateCount))
-                        .get().getPersistentSettings().getAsMap().keySet(),
-                empty());
+        logger.info("--> trying to updating [{}] to [{}]", ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES_SETTING.getKey(), updateCount);
+        try {
+            client().admin().cluster().prepareUpdateSettings()
+                    .setPersistentSettings(settingsBuilder().put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES_SETTING.getKey(), updateCount));
+        } catch (IllegalArgumentException ex) {
+            assertEquals(ex.getMessage(), "cannot set discovery.zen.minimum_master_nodes to more than the current master nodes count [" +updateCount+ "]");
+        }
 
         logger.info("--> verifying no node left and master is up");
         assertFalse(client().admin().cluster().prepareHealth().setWaitForNodes(Integer.toString(nodeCount)).get().isTimedOut());
+    }
+
+    public void testCanNotPublishWithoutMinMastNodes() throws Exception {
+        Settings settings = settingsBuilder()
+                .put("discovery.type", "zen")
+                .put(FaultDetection.SETTING_PING_TIMEOUT, "1h") // disable it
+                .put(ZenDiscovery.SETTING_PING_TIMEOUT, "200ms")
+                .put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES_SETTING.getKey(), 2)
+                .put(DiscoverySettings.COMMIT_TIMEOUT_SETTING.getKey(), "100ms") // speed things up
+                .build();
+        internalCluster().startNodesAsync(3, settings).get();
+        ensureGreen(); // ensure cluster state is recovered before we disrupt things
+
+        final String master = internalCluster().getMasterName();
+        Set<String> otherNodes = new HashSet<>(Arrays.asList(internalCluster().getNodeNames()));
+        otherNodes.remove(master);
+        NetworkDelaysPartition partition = new NetworkDelaysPartition(Collections.singleton(master), otherNodes, 60000, random());
+        internalCluster().setDisruptionScheme(partition);
+        partition.startDisrupting();
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        logger.debug("--> submitting for cluster state to be rejected");
+        final ClusterService masterClusterService = internalCluster().clusterService(master);
+        masterClusterService.submitStateUpdateTask("test", new ClusterStateUpdateTask() {
+            @Override
+            public void clusterStateProcessed(String source, ClusterState oldState, ClusterState newState) {
+                latch.countDown();
+            }
+
+            @Override
+            public ClusterState execute(ClusterState currentState) throws Exception {
+                MetaData.Builder metaData = MetaData.builder(currentState.metaData()).persistentSettings(
+                        Settings.builder().put(currentState.metaData().persistentSettings()).put("_SHOULD_NOT_BE_THERE_", true).build()
+                );
+                return ClusterState.builder(currentState).metaData(metaData).build();
+            }
+
+            @Override
+            public void onFailure(String source, Throwable t) {
+                failure.set(t);
+                latch.countDown();
+            }
+        });
+
+        logger.debug("--> waiting for cluster state to be processed/rejected");
+        latch.await();
+
+        assertThat(failure.get(), instanceOf(Discovery.FailedToCommitClusterStateException.class));
+        assertBusy(new Runnable() {
+            @Override
+            public void run() {
+                assertThat(masterClusterService.state().nodes().masterNode(), nullValue());
+            }
+        });
+
+        partition.stopDisrupting();
+
+        logger.debug("--> waiting for cluster to heal");
+        assertNoTimeout(client().admin().cluster().prepareHealth().setWaitForNodes("3").setWaitForEvents(Priority.LANGUID));
+
+        for (String node : internalCluster().getNodeNames()) {
+            Settings nodeSetting = internalCluster().clusterService(node).state().metaData().settings();
+            assertThat(node + " processed the cluster state despite of a min master node violation", nodeSetting.get("_SHOULD_NOT_BE_THERE_"), nullValue());
+        }
+
     }
 }

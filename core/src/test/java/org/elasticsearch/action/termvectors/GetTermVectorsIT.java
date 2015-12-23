@@ -41,7 +41,6 @@ import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.index.engine.VersionConflictEngineException;
 import org.elasticsearch.index.mapper.FieldMapper;
 import org.hamcrest.Matcher;
-import org.junit.Test;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -63,8 +62,6 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 
 public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
-
-    @Test
     public void testNoSuchDoc() throws Exception {
         XContentBuilder mapping = jsonBuilder().startObject().startObject("type1")
                 .startObject("properties")
@@ -91,7 +88,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         }
     }
 
-    @Test
     public void testExistingFieldWithNoTermVectorsNoNPE() throws Exception {
         XContentBuilder mapping = jsonBuilder().startObject().startObject("type1")
                 .startObject("properties")
@@ -119,7 +115,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         assertThat(actionGet.getFields().terms("existingfield"), nullValue());
     }
 
-    @Test
     public void testExistingFieldButNotInDocNPE() throws Exception {
         XContentBuilder mapping = jsonBuilder().startObject().startObject("type1")
                 .startObject("properties")
@@ -150,7 +145,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         assertThat(actionGet.getFields().terms("existingfield"), nullValue());
     }
 
-    @Test
     public void testNotIndexedField() throws Exception {
         // must be of type string and indexed.
         assertAcked(prepareCreate("test")
@@ -193,7 +187,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         }
     }
 
-    @Test
     public void testSimpleTermVectors() throws IOException {
         XContentBuilder mapping = jsonBuilder().startObject().startObject("type1")
                 .startObject("properties")
@@ -231,7 +224,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         }
     }
 
-    @Test
     public void testRandomSingleTermVectors() throws IOException {
         FieldType ft = new FieldType();
         int config = randomInt(6);
@@ -392,7 +384,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         return ret;
     }
 
-    @Test
     public void testDuelESLucene() throws Exception {
         TestFieldSetting[] testFieldSettings = getFieldSettings();
         createIndexBasedOnFieldSettings("test", "alias", testFieldSettings);
@@ -419,7 +410,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         }
     }
 
-    @Test
     public void testRandomPayloadWithDelimitedPayloadTokenFilter() throws IOException {
         //create the test document
         int encoding = randomIntBetween(0, 2);
@@ -587,7 +577,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
     }
 
     // like testSimpleTermVectors but we create fields with no term vectors
-    @Test
     public void testSimpleTermVectorsWithGenerate() throws IOException {
         String[] fieldNames = new String[10];
         for (int i = 0; i < fieldNames.length; i++) {
@@ -680,7 +669,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         assertThat(iterator.next(), nullValue());
     }
 
-    @Test
     public void testDuelWithAndWithoutTermVectors() throws IOException, ExecutionException, InterruptedException {
         // setup indices
         String[] indexNames = new String[] {"with_tv", "without_tv"};
@@ -769,7 +757,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         assertThat(iter1.next(), nullValue());
     }
 
-    @Test
     public void testSimpleWildCards() throws IOException {
         int numFields = 25;
 
@@ -797,7 +784,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         assertThat("All term vectors should have been generated", response.getFields().size(), equalTo(numFields));
     }
 
-    @Test
     public void testArtificialVsExisting() throws ExecutionException, InterruptedException, IOException {
         // setup indices
         Settings.Builder settings = settingsBuilder()
@@ -856,7 +842,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         }
     }
 
-    @Test
     public void testArtificialNoDoc() throws IOException {
         // setup indices
         Settings.Builder settings = settingsBuilder()
@@ -885,7 +870,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         checkBrownFoxTermVector(resp.getFields(), "field1", false);
     }
 
-    @Test
     public void testArtificialNonExistingField() throws Exception {
         // setup indices
         Settings.Builder settings = settingsBuilder()
@@ -933,7 +917,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         }
     }
 
-    @Test
     public void testPerFieldAnalyzer() throws IOException {
         int numFields = 25;
 
@@ -1030,7 +1013,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         return randomBoolean() ? "test" : "alias";
     }
 
-    @Test
     public void testDfs() throws ExecutionException, InterruptedException, IOException {
         logger.info("Setting up the index ...");
         Settings.Builder settings = settingsBuilder()
@@ -1135,7 +1117,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         return lessThan(value);
     }
 
-    @Test
     public void testTermVectorsWithVersion() {
         assertAcked(prepareCreate("test").addAlias(new Alias("alias"))
                 .setSettings(Settings.settingsBuilder().put("index.refresh_interval", -1)));
@@ -1239,7 +1220,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         assertThat(response.getVersion(), equalTo(2l));
     }
 
-    @Test
     public void testFilterLength() throws ExecutionException, InterruptedException, IOException {
         logger.info("Setting up the index ...");
         Settings.Builder settings = settingsBuilder()
@@ -1278,7 +1258,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         }
     }
 
-    @Test
     public void testFilterTermFreq() throws ExecutionException, InterruptedException, IOException {
         logger.info("Setting up the index ...");
         Settings.Builder settings = settingsBuilder()
@@ -1319,7 +1298,6 @@ public class GetTermVectorsIT extends AbstractTermVectorsTestCase {
         }
     }
 
-    @Test
     public void testFilterDocFreq() throws ExecutionException, InterruptedException, IOException {
         logger.info("Setting up the index ...");
         Settings.Builder settings = settingsBuilder()

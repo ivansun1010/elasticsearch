@@ -19,13 +19,9 @@
 
 package org.elasticsearch.common.io;
 
-import com.google.common.base.Charsets;
-
-import org.elasticsearch.test.ESTestCase;
 import org.apache.lucene.util.LuceneTestCase.SuppressFileSystems;
-import org.junit.Assert;
+import org.elasticsearch.test.ESTestCase;
 import org.junit.Before;
-import org.junit.Test;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -34,10 +30,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 
-import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertFileExists;
+import static org.elasticsearch.common.io.FileTestUtils.assertFileContent;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertFileNotExists;
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.is;
 
 /**
  * Unit tests for {@link org.elasticsearch.common.io.FileSystemUtils}.
@@ -61,7 +55,6 @@ public class FileSystemUtilsTests extends ESTestCase {
         FileSystemUtils.copyDirectoryRecursively(path, src);
     }
 
-    @Test
     public void testMoveOverExistingFileAndAppend() throws IOException {
 
         FileSystemUtils.moveFilesWithoutOverwriting(src.resolve("v1"), dst, ".new");
@@ -88,7 +81,6 @@ public class FileSystemUtilsTests extends ESTestCase {
         assertFileContent(dst, "dir/subdir/file5.txt", "version1");
     }
 
-    @Test
     public void testMoveOverExistingFileAndIgnore() throws IOException {
         Path dest = createTempDir();
 
@@ -116,13 +108,12 @@ public class FileSystemUtilsTests extends ESTestCase {
         assertFileContent(dest, "dir/subdir/file5.txt", "version1");
     }
 
-    @Test
     public void testMoveFilesDoesNotCreateSameFileWithSuffix() throws Exception {
         Path[] dirs = new Path[] { createTempDir(), createTempDir(), createTempDir()};
         for (Path dir : dirs) {
-            Files.write(dir.resolve("file1.txt"), "file1".getBytes(Charsets.UTF_8));
+            Files.write(dir.resolve("file1.txt"), "file1".getBytes(StandardCharsets.UTF_8));
             Files.createDirectory(dir.resolve("dir"));
-            Files.write(dir.resolve("dir").resolve("file2.txt"), "file2".getBytes(Charsets.UTF_8));
+            Files.write(dir.resolve("dir").resolve("file2.txt"), "file2".getBytes(StandardCharsets.UTF_8));
         }
 
         FileSystemUtils.moveFilesWithoutOverwriting(dirs[0], dst, ".new");
@@ -137,33 +128,13 @@ public class FileSystemUtilsTests extends ESTestCase {
         assertFileNotExists(dst.resolve("dir").resolve("file2.txt.new"));
 
         // change file content, make sure it gets updated
-        Files.write(dirs[2].resolve("dir").resolve("file2.txt"), "UPDATED".getBytes(Charsets.UTF_8));
+        Files.write(dirs[2].resolve("dir").resolve("file2.txt"), "UPDATED".getBytes(StandardCharsets.UTF_8));
         FileSystemUtils.moveFilesWithoutOverwriting(dirs[2], dst, ".new");
         assertFileContent(dst, "file1.txt", "file1");
         assertFileContent(dst, "dir/file2.txt", "file2");
         assertFileContent(dst, "dir/file2.txt.new", "UPDATED");
     }
 
-    /**
-     * Check that a file contains a given String
-     * @param dir root dir for file
-     * @param filename relative path from root dir to file
-     * @param expected expected content (if null, we don't expect any file)
-     */
-    public static void assertFileContent(Path dir, String filename, String expected) throws IOException {
-        Assert.assertThat(Files.exists(dir), is(true));
-        Path file = dir.resolve(filename);
-        if (expected == null) {
-            Assert.assertThat("file [" + file + "] should not exist.", Files.exists(file), is(false));
-        } else {
-            assertFileExists(file);
-            String fileContent = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
-            // trim the string content to prevent different handling on windows vs. unix and CR chars...
-            Assert.assertThat(fileContent.trim(), equalTo(expected.trim()));
-        }
-    }
-
-    @Test
     public void testAppend() {
         assertEquals(FileSystemUtils.append(PathUtils.get("/foo/bar"), PathUtils.get("/hello/world/this_is/awesome"), 0),
             PathUtils.get("/foo/bar/hello/world/this_is/awesome"));

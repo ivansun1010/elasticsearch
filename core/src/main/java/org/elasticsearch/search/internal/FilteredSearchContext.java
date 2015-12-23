@@ -33,7 +33,6 @@ import org.elasticsearch.index.fielddata.IndexFieldDataService;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.index.mapper.object.ObjectMapper;
-import org.elasticsearch.index.query.IndexQueryParserService;
 import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.index.similarity.SimilarityService;
@@ -49,9 +48,9 @@ import org.elasticsearch.search.fetch.script.ScriptFieldsContext;
 import org.elasticsearch.search.fetch.source.FetchSourceContext;
 import org.elasticsearch.search.highlight.SearchContextHighlight;
 import org.elasticsearch.search.lookup.SearchLookup;
+import org.elasticsearch.search.profile.Profilers;
 import org.elasticsearch.search.query.QuerySearchResult;
 import org.elasticsearch.search.rescore.RescoreSearchContext;
-import org.elasticsearch.search.scan.ScanContext;
 import org.elasticsearch.search.suggest.SuggestionSearchContext;
 
 import java.util.List;
@@ -255,11 +254,6 @@ public abstract class FilteredSearchContext extends SearchContext {
     @Override
     public AnalysisService analysisService() {
         return in.analysisService();
-    }
-
-    @Override
-    public IndexQueryParserService queryParserService() {
-        return in.queryParserService();
     }
 
     @Override
@@ -498,18 +492,8 @@ public abstract class FilteredSearchContext extends SearchContext {
     }
 
     @Override
-    public ScanContext scanContext() {
-        return in.scanContext();
-    }
-
-    @Override
     public MappedFieldType smartNameFieldType(String name) {
         return in.smartNameFieldType(name);
-    }
-
-    @Override
-    public MappedFieldType smartNameFieldTypeFromAnyType(String name) {
-        return in.smartNameFieldTypeFromAnyType(name);
     }
 
     @Override
@@ -528,7 +512,11 @@ public abstract class FilteredSearchContext extends SearchContext {
     }
 
     @Override
-    public Map<Class<?>, Collector> queryCollectors() {
-        return in.queryCollectors();
+    public Profilers getProfilers() {
+        return in.getProfilers();
     }
+
+    @Override
+    public Map<Class<?>, Collector> queryCollectors() { return in.queryCollectors();}
+
 }

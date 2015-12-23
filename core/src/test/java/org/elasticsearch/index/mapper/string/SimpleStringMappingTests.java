@@ -19,13 +19,13 @@
 
 package org.elasticsearch.index.mapper.string;
 
-import com.google.common.collect.ImmutableMap;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.IndexableFieldType;
 import org.elasticsearch.Version;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
+import org.elasticsearch.common.compress.CompressedXContent;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -40,25 +40,27 @@ import org.elasticsearch.index.mapper.DocumentMapperParser;
 import org.elasticsearch.index.mapper.FieldMapper;
 import org.elasticsearch.index.mapper.Mapper.BuilderContext;
 import org.elasticsearch.index.mapper.MapperParsingException;
-import org.elasticsearch.index.mapper.MergeResult;
+import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.index.mapper.ParseContext.Document;
 import org.elasticsearch.index.mapper.ParsedDocument;
 import org.elasticsearch.index.mapper.core.StringFieldMapper;
+import org.elasticsearch.index.mapper.core.StringFieldMapper.Builder;
 import org.elasticsearch.test.ESSingleNodeTestCase;
 import org.elasticsearch.test.VersionUtils;
 import org.junit.Before;
-import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.Map;
 
-import static org.elasticsearch.index.mapper.core.StringFieldMapper.Builder;
-import static org.hamcrest.Matchers.*;
+import static java.util.Collections.emptyMap;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 
 /**
  */
 public class SimpleStringMappingTests extends ESSingleNodeTestCase {
-
     private static Settings DOC_VALUES_SETTINGS = Settings.builder().put(FieldDataType.FORMAT_KEY, FieldDataType.DOC_VALUES_FORMAT_VALUE).build();
 
     IndexService indexService;
@@ -70,13 +72,12 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
         parser = indexService.mapperService().documentMapperParser();
     }
 
-    @Test
     public void testLimit() throws Exception {
         String mapping = XContentFactory.jsonBuilder().startObject().startObject("type")
                 .startObject("properties").startObject("field").field("type", "string").field("ignore_above", 5).endObject().endObject()
                 .endObject().endObject().string();
 
-        DocumentMapper defaultMapper = parser.parse(mapping);
+        DocumentMapper defaultMapper = parser.parse("type", new CompressedXContent(mapping));
 
         ParsedDocument doc = defaultMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
@@ -121,8 +122,8 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
     }
 
     private void assertParseIdemPotent(IndexableFieldType expected, DocumentMapper mapper) throws Exception {
-        String mapping = mapper.toXContent(XContentFactory.jsonBuilder().startObject(), new ToXContent.MapParams(ImmutableMap.<String, String>of())).endObject().string();
-        mapper = parser.parse(mapping);
+        String mapping = mapper.toXContent(XContentFactory.jsonBuilder().startObject(), new ToXContent.MapParams(emptyMap())).endObject().string();
+        mapper = parser.parse("type", new CompressedXContent(mapping));
         ParsedDocument doc = mapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
                 .field("field", "2345")
@@ -131,13 +132,12 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
         assertEquals(expected, doc.rootDoc().getField("field").fieldType());
     }
 
-    @Test
     public void testDefaultsForAnalyzed() throws Exception {
         String mapping = XContentFactory.jsonBuilder().startObject().startObject("type")
                 .startObject("properties").startObject("field").field("type", "string").endObject().endObject()
                 .endObject().endObject().string();
 
-        DocumentMapper defaultMapper = parser.parse(mapping);
+        DocumentMapper defaultMapper = parser.parse("type", new CompressedXContent(mapping));
 
         ParsedDocument doc = defaultMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
@@ -150,13 +150,12 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
         assertParseIdemPotent(fieldType, defaultMapper);
     }
 
-    @Test
     public void testDefaultsForNotAnalyzed() throws Exception {
         String mapping = XContentFactory.jsonBuilder().startObject().startObject("type")
                 .startObject("properties").startObject("field").field("type", "string").field("index", "not_analyzed").endObject().endObject()
                 .endObject().endObject().string();
 
-        DocumentMapper defaultMapper = parser.parse(mapping);
+        DocumentMapper defaultMapper = parser.parse("type", new CompressedXContent(mapping));
 
         ParsedDocument doc = defaultMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
@@ -179,7 +178,7 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
                 .startObject("properties").startObject("field").field("type", "string").field("index", "not_analyzed").startObject("norms").field("enabled", true).endObject().field("index_options", "freqs").endObject().endObject()
                 .endObject().endObject().string();
 
-        defaultMapper = parser.parse(mapping);
+        defaultMapper = parser.parse("type", new CompressedXContent(mapping));
 
         doc = defaultMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
@@ -202,7 +201,7 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
                 .startObject("properties").startObject("field").field("type", "string").field("index", "not_analyzed").field("omit_norms", false).endObject().endObject()
                 .endObject().endObject().string();
 
-        defaultMapper = parser.parse(mapping);
+        defaultMapper = parser.parse("type", new CompressedXContent(mapping));
 
         doc = defaultMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
@@ -214,8 +213,7 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
         assertThat(fieldType.omitNorms(), equalTo(false));
         assertParseIdemPotent(fieldType, defaultMapper);
     }
-    
-    @Test
+
     public void testSearchQuoteAnalyzerSerialization() throws Exception {
         // Cases where search_quote_analyzer should not be added to the mapping.
         String mapping = XContentFactory.jsonBuilder().startObject().startObject("type")
@@ -245,12 +243,12 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
                 .endObject()
                 .endObject().endObject().string();
 
-        DocumentMapper mapper = parser.parse(mapping);
+        DocumentMapper mapper = parser.parse("type", new CompressedXContent(mapping));
         for (String fieldName : Arrays.asList("field1", "field2", "field3", "field4")) {
             Map<String, Object> serializedMap = getSerializedMap(fieldName, mapper);
             assertFalse(fieldName, serializedMap.containsKey("search_quote_analyzer"));
         }
-        
+
         // Cases where search_quote_analyzer should be present.
         mapping = XContentFactory.jsonBuilder().startObject().startObject("type")
                 .startObject("properties")
@@ -268,20 +266,20 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
                 .endObject()
                 .endObject()
                 .endObject().endObject().string();
-        
-        mapper = parser.parse(mapping);
+
+        mapper = parser.parse("type", new CompressedXContent(mapping));
         for (String fieldName : Arrays.asList("field1", "field2")) {
             Map<String, Object> serializedMap = getSerializedMap(fieldName, mapper);
             assertEquals(serializedMap.get("search_quote_analyzer"), "simple");
         }
     }
-    
+
     private Map<String, Object> getSerializedMap(String fieldName, DocumentMapper mapper) throws Exception {
         FieldMapper fieldMapper = mapper.mappers().smartNameFieldMapper(fieldName);
         XContentBuilder builder = JsonXContent.contentBuilder().startObject();
         fieldMapper.toXContent(builder, ToXContent.EMPTY_PARAMS).endObject();
         builder.close();
-        
+
         Map<String, Object> fieldMap;
         try (XContentParser parser = JsonXContent.jsonXContent.createParser(builder.bytes())) {
             fieldMap = parser.map();
@@ -291,7 +289,6 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
         return result;
     }
 
-    @Test
     public void testTermVectors() throws Exception {
         String mapping = XContentFactory.jsonBuilder().startObject().startObject("type")
                 .startObject("properties")
@@ -322,7 +319,7 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
                 .endObject()
                 .endObject().endObject().string();
 
-        DocumentMapper defaultMapper = parser.parse(mapping);
+        DocumentMapper defaultMapper = parser.parse("type", new CompressedXContent(mapping));
 
         ParsedDocument doc = defaultMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
@@ -369,7 +366,7 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
     public void testDocValuesFielddata() throws Exception {
         IndexService indexService = createIndex("index");
         DocumentMapperParser parser = indexService.mapperService().documentMapperParser();
-        final BuilderContext ctx = new BuilderContext(indexService.settingsService().getSettings(), new ContentPath(1));
+        final BuilderContext ctx = new BuilderContext(indexService.getIndexSettings().getSettings(), new ContentPath(1));
 
         assertFalse(new Builder("anything").index(false).build(ctx).fieldType().hasDocValues());
         assertTrue(new Builder("anything").index(false).fieldDataSettings(DOC_VALUES_SETTINGS).build(ctx).fieldType().hasDocValues());
@@ -393,7 +390,7 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
             .endObject()
             .endObject().endObject().string();
 
-        DocumentMapper defaultMapper = parser.parse(mapping);
+        DocumentMapper defaultMapper = parser.parse("type", new CompressedXContent(mapping));
 
         ParsedDocument parsedDoc = defaultMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
             .startObject()
@@ -408,7 +405,7 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
 
     public void testDocValues() throws Exception {
         // doc values only work on non-analyzed content
-        final BuilderContext ctx = new BuilderContext(indexService.settingsService().getSettings(), new ContentPath(1));
+        final BuilderContext ctx = new BuilderContext(indexService.getIndexSettings().getSettings(), new ContentPath(1));
         try {
             new StringFieldMapper.Builder("anything").docValues(true).build(ctx);
             fail();
@@ -447,7 +444,7 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
                 .endObject()
                 .endObject().endObject().string();
 
-        DocumentMapper defaultMapper = parser.parse(mapping);
+        DocumentMapper defaultMapper = parser.parse("type", new CompressedXContent(mapping));
 
         ParsedDocument parsedDoc = defaultMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
@@ -464,7 +461,7 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
         assertEquals(DocValuesType.NONE, docValuesType(doc, "str3"));
         assertEquals(DocValuesType.NONE, docValuesType(doc, "str4"));
         assertEquals(DocValuesType.SORTED_SET, docValuesType(doc, "str5"));
-        
+
     }
 
     // TODO: this function shouldn't be necessary.  parsing should just add a single field that is indexed and dv
@@ -477,13 +474,13 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
         return DocValuesType.NONE;
     }
 
-    @Test
     public void testDisableNorms() throws Exception {
         String mapping = XContentFactory.jsonBuilder().startObject().startObject("type")
                 .startObject("properties").startObject("field").field("type", "string").endObject().endObject()
                 .endObject().endObject().string();
 
-        DocumentMapper defaultMapper = parser.parse(mapping);
+        MapperService mapperService = indexService.mapperService();
+        DocumentMapper defaultMapper = mapperService.merge("type", new CompressedXContent(mapping), true, false);
 
         ParsedDocument doc = defaultMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
@@ -497,8 +494,7 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
         String updatedMapping = XContentFactory.jsonBuilder().startObject().startObject("type")
                 .startObject("properties").startObject("field").field("type", "string").startObject("norms").field("enabled", false).endObject()
                 .endObject().endObject().endObject().endObject().string();
-        MergeResult mergeResult = defaultMapper.merge(parser.parse(updatedMapping).mapping(), false, false);
-        assertFalse(Arrays.toString(mergeResult.buildConflicts()), mergeResult.hasConflicts());
+        defaultMapper = mapperService.merge("type", new CompressedXContent(updatedMapping), false, false);
 
         doc = defaultMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
@@ -512,10 +508,12 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
         updatedMapping = XContentFactory.jsonBuilder().startObject().startObject("type")
                 .startObject("properties").startObject("field").field("type", "string").startObject("norms").field("enabled", true).endObject()
                 .endObject().endObject().endObject().endObject().string();
-        mergeResult = defaultMapper.merge(parser.parse(updatedMapping).mapping(), true, false);
-        assertTrue(mergeResult.hasConflicts());
-        assertEquals(1, mergeResult.buildConflicts().length);
-        assertTrue(mergeResult.buildConflicts()[0].contains("different [omit_norms]"));
+        try {
+            mapperService.merge("type", new CompressedXContent(updatedMapping), false, false);
+            fail();
+        } catch (IllegalArgumentException e) {
+            assertThat(e.getMessage(), containsString("different [omit_norms]"));
+        }
     }
 
     /**
@@ -535,7 +533,7 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
                 .field("analyzer", "standard")
                 .endObject().endObject().endObject().endObject().string();
         try {
-            parser.parse(mapping);
+            parser.parse("type", new CompressedXContent(mapping));
             fail("Mapping definition should fail with the position_offset_gap setting");
         }catch (MapperParsingException e) {
             assertEquals(e.getMessage(), "Mapping definition for [field2] has unsupported parameters:  [position_offset_gap : 50]");
@@ -558,8 +556,8 @@ public class SimpleStringMappingTests extends ESSingleNodeTestCase {
                 .field("type", "string")
                 .field("position_offset_gap", 10)
                 .endObject().endObject().endObject().endObject().string();
-        parser.parse(mapping);
+        parser.parse("type", new CompressedXContent(mapping));
 
-        assertThat(parser.parse(mapping).mapping().toString(), containsString("\"position_increment_gap\":10"));
+        assertThat(parser.parse("type", new CompressedXContent(mapping)).mapping().toString(), containsString("\"position_increment_gap\":10"));
     }
 }

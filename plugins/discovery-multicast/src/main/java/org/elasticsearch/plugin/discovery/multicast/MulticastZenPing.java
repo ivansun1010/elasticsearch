@@ -19,8 +19,10 @@
 
 package org.elasticsearch.plugin.discovery.multicast;
 
+import com.carrotsearch.hppc.cursors.ObjectObjectCursor;
 import org.apache.lucene.util.Constants;
 import org.elasticsearch.ExceptionsHelper;
+import org.elasticsearch.SpecialPermission;
 import org.elasticsearch.Version;
 import org.elasticsearch.cluster.ClusterName;
 import org.elasticsearch.cluster.node.DiscoveryNode;
@@ -33,6 +35,7 @@ import org.elasticsearch.common.io.stream.BytesStreamOutput;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.network.NetworkService;
+import org.elasticsearch.common.network.NetworkUtils;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.util.concurrent.AbstractRunnable;
@@ -44,10 +47,21 @@ import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.discovery.zen.ping.PingContextProvider;
 import org.elasticsearch.discovery.zen.ping.ZenPing;
 import org.elasticsearch.threadpool.ThreadPool;
-import org.elasticsearch.transport.*;
+import org.elasticsearch.transport.EmptyTransportResponseHandler;
+import org.elasticsearch.transport.TransportChannel;
+import org.elasticsearch.transport.TransportException;
+import org.elasticsearch.transport.TransportRequest;
+import org.elasticsearch.transport.TransportRequestHandler;
+import org.elasticsearch.transport.TransportResponse;
+import org.elasticsearch.transport.TransportService;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.SocketAddress;
+import java.security.AccessController;
+import java.security.PrivilegedExceptionAction;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -111,7 +125,7 @@ public class MulticastZenPing extends AbstractLifecycleComponent<ZenPing> implem
 
         logger.debug("using group [{}], with port [{}], ttl [{}], and address [{}]", group, port, ttl, address);
 
-        this.transportService.registerRequestHandler(ACTION_NAME, MulticastPingResponse.class, ThreadPool.Names.SAME, new MulticastPingResponseRequestHandler());
+        this.transportService.registerRequestHandler(ACTION_NAME, MulticastPingResponse::new, ThreadPool.Names.SAME, new MulticastPingResponseRequestHandler());
     }
 
     @Override
@@ -130,20 +144,26 @@ public class MulticastZenPing extends AbstractLifecycleComponent<ZenPing> implem
             boolean shared = settings.getAsBoolean("discovery.zen.ping.multicast.shared", Constants.MAC_OS_X);
             // OSX does not correctly send multicasts FROM the right interface
             boolean deferToInterface = settings.getAsBoolean("discovery.zen.ping.multicast.defer_group_to_set_interface", Constants.MAC_OS_X);
-            multicastChannel = MulticastChannel.getChannel(nodeName(), shared,
-                    new MulticastChannel.Config(port, group, bufferSize, ttl,
-                            // don't use publish address, the use case for that is e.g. a firewall or proxy and
-                            // may not even be bound to an interface on this machine! use the first bound address.
-                            networkService.resolveBindHostAddress(address)[0],
-                            deferToInterface),
-                    new Receiver());
+            // don't use publish address, the use case for that is e.g. a firewall or proxy and
+            // may not even be bound to an interface on this machine! use the first bound address.
+            List<InetAddress> addresses = Arrays.asList(networkService.resolveBindHostAddresses(address == null ? null : new String[] { address }));
+            NetworkUtils.sortAddresses(addresses);
+
+            final MulticastChannel.Config config = new MulticastChannel.Config(port, group, bufferSize, ttl,
+                                                                               addresses.get(0), deferToInterface);
+            SecurityManager sm = System.getSecurityManager();
+            if (sm != null) {
+                sm.checkPermission(new SpecialPermission());
+            }
+            multicastChannel = AccessController.doPrivileged(new PrivilegedExceptionAction<MulticastChannel>() {
+                @Override
+                public MulticastChannel run() throws Exception {
+                    return MulticastChannel.getChannel(nodeName(), shared, config, new Receiver());
+                }
+            });
         } catch (Throwable t) {
             String msg = "multicast failed to start [{}], disabling. Consider using IPv4 only (by defining env. variable `ES_USE_IPV4`)";
-            if (logger.isDebugEnabled()) {
-                logger.debug(msg, t, ExceptionsHelper.detailedMessage(t));
-            } else {
-                logger.info(msg, ExceptionsHelper.detailedMessage(t));
-            }
+            logger.info(msg, t, ExceptionsHelper.detailedMessage(t));
         }
     }
 
@@ -352,13 +372,13 @@ public class MulticastZenPing extends AbstractLifecycleComponent<ZenPing> implem
         }
     }
 
-    static class MulticastPingResponse extends TransportRequest {
+    public static class MulticastPingResponse extends TransportRequest {
 
         int id;
 
         PingResponse pingResponse;
 
-        MulticastPingResponse() {
+        public MulticastPingResponse() {
         }
 
         @Override
@@ -483,8 +503,8 @@ public class MulticastZenPing extends AbstractLifecycleComponent<ZenPing> implem
                 }
 
                 builder.startObject("attributes");
-                for (Map.Entry<String, String> attr : localNode.attributes().entrySet()) {
-                    builder.field(attr.getKey(), attr.getValue());
+                for (ObjectObjectCursor<String, String> attr : localNode.attributes()) {
+                    builder.field(attr.key, attr.value);
                 }
                 builder.endObject();
 

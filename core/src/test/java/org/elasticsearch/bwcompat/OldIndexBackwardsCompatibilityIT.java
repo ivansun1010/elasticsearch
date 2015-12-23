@@ -19,19 +19,19 @@
 
 package org.elasticsearch.bwcompat;
 
-import com.google.common.util.concurrent.ListenableFuture;
-
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.TestUtil;
 import org.elasticsearch.Version;
 import org.elasticsearch.action.admin.indices.get.GetIndexResponse;
+import org.elasticsearch.action.admin.indices.segments.IndexSegments;
+import org.elasticsearch.action.admin.indices.segments.IndexShardSegments;
+import org.elasticsearch.action.admin.indices.segments.IndicesSegmentResponse;
+import org.elasticsearch.action.admin.indices.segments.ShardSegments;
 import org.elasticsearch.action.admin.indices.upgrade.UpgradeIT;
 import org.elasticsearch.action.get.GetResponse;
 import org.elasticsearch.action.search.SearchRequestBuilder;
 import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.cluster.ClusterState;
-import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.common.io.FileSystemUtils;
 import org.elasticsearch.common.logging.ESLogger;
 import org.elasticsearch.common.settings.Settings;
@@ -40,6 +40,7 @@ import org.elasticsearch.common.util.MultiDataPathUpgrader;
 import org.elasticsearch.common.xcontent.XContentHelper;
 import org.elasticsearch.env.NodeEnvironment;
 import org.elasticsearch.index.engine.EngineConfig;
+import org.elasticsearch.index.engine.Segment;
 import org.elasticsearch.index.mapper.string.StringFieldMapperPositionIncrementGapTests;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.index.shard.MergePolicyConfig;
@@ -50,12 +51,12 @@ import org.elasticsearch.search.aggregations.bucket.histogram.Histogram;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.search.sort.SortOrder;
 import org.elasticsearch.test.ESIntegTestCase;
+import org.elasticsearch.test.InternalTestCluster;
 import org.elasticsearch.test.VersionUtils;
 import org.elasticsearch.test.hamcrest.ElasticsearchAssertions;
 import org.hamcrest.Matchers;
 import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -75,7 +76,6 @@ import java.util.TreeSet;
 
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertNoFailures;
-import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 
 // needs at least 2 nodes since it bumps replicas to 1
@@ -98,8 +98,7 @@ public class OldIndexBackwardsCompatibilityIT extends ESIntegTestCase {
 
     private List<String> loadIndexesList(String prefix) throws IOException {
         List<String> indexes = new ArrayList<>();
-        Path dir = getDataPath(".");
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, prefix + "-*.zip")) {
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(getBwcIndicesPath(), prefix + "-*.zip")) {
             for (Path path : stream) {
                 indexes.add(path.getFileName().toString());
             }
@@ -118,25 +117,25 @@ public class OldIndexBackwardsCompatibilityIT extends ESIntegTestCase {
     public Settings nodeSettings(int ord) {
         return Settings.builder()
                 .put(MergePolicyConfig.INDEX_MERGE_ENABLED, false) // disable merging so no segments will be upgraded
-                .put(RecoverySettings.INDICES_RECOVERY_CONCURRENT_SMALL_FILE_STREAMS, 30) // increase recovery speed for small files
+                .put(RecoverySettings.INDICES_RECOVERY_CONCURRENT_SMALL_FILE_STREAMS_SETTING.getKey(), 30) // increase recovery speed for small files
                 .build();
     }
 
     void setupCluster() throws Exception {
-        ListenableFuture<List<String>> replicas = internalCluster().startNodesAsync(1); // for replicas
+        InternalTestCluster.Async<List<String>> replicas = internalCluster().startNodesAsync(1); // for replicas
 
         Path baseTempDir = createTempDir();
         // start single data path node
         Settings.Builder nodeSettings = Settings.builder()
             .put("path.data", baseTempDir.resolve("single-path").toAbsolutePath())
             .put("node.master", false); // workaround for dangling index loading issue when node is master
-        ListenableFuture<String> singleDataPathNode = internalCluster().startNodeAsync(nodeSettings.build());
+        InternalTestCluster.Async<String> singleDataPathNode = internalCluster().startNodeAsync(nodeSettings.build());
 
         // start multi data path node
         nodeSettings = Settings.builder()
             .put("path.data", baseTempDir.resolve("multi-path1").toAbsolutePath() + "," + baseTempDir.resolve("multi-path2").toAbsolutePath())
             .put("node.master", false); // workaround for dangling index loading issue when node is master
-        ListenableFuture<String> multiDataPathNode = internalCluster().startNodeAsync(nodeSettings.build());
+        InternalTestCluster.Async<String> multiDataPathNode = internalCluster().startNodeAsync(nodeSettings.build());
 
         // find single data path dir
         Path[] nodePaths = internalCluster().getInstance(NodeEnvironment.class, singleDataPathNode.get()).nodeDataPaths();
@@ -166,7 +165,7 @@ public class OldIndexBackwardsCompatibilityIT extends ESIntegTestCase {
         String indexName = indexFile.replace(".zip", "").toLowerCase(Locale.ROOT).replace("unsupported-", "index-");
 
         // decompress the index
-        Path backwardsIndex = getDataPath(indexFile);
+        Path backwardsIndex = getBwcIndicesPath().resolve(indexFile);
         try (InputStream stream = Files.newInputStream(backwardsIndex)) {
             TestUtil.unzip(stream, unzipDir);
         }
@@ -247,7 +246,7 @@ public class OldIndexBackwardsCompatibilityIT extends ESIntegTestCase {
         SortedSet<String> expectedVersions = new TreeSet<>();
         for (Version v : VersionUtils.allVersions()) {
             if (v.snapshot()) continue;  // snapshots are unreleased, so there is no backcompat yet
-            if (v.onOrBefore(Version.V_0_20_6)) continue; // we can only test back one major lucene version
+            if (v.onOrBefore(Version.V_2_0_0_beta1)) continue; // we can only test back one major lucene version
             if (v.equals(Version.CURRENT)) continue; // the current version is always compatible with itself
             expectedVersions.add("index-" + v.toString() + ".zip");
         }
@@ -269,7 +268,7 @@ public class OldIndexBackwardsCompatibilityIT extends ESIntegTestCase {
     public void testOldIndexes() throws Exception {
         setupCluster();
 
-        Collections.shuffle(indexes, getRandom());
+        Collections.shuffle(indexes, random());
         for (String index : indexes) {
             long startTime = System.currentTimeMillis();
             logger.info("--> Testing old index " + index);
@@ -278,52 +277,11 @@ public class OldIndexBackwardsCompatibilityIT extends ESIntegTestCase {
         }
     }
 
-    @Test
-    public void testHandlingOfUnsupportedDanglingIndexes() throws Exception {
-        setupCluster();
-        Collections.shuffle(unsupportedIndexes, getRandom());
-        for (String index : unsupportedIndexes) {
-            assertUnsupportedIndexHandling(index);
-        }
-    }
-
-    /**
-     * Waits for the index to show up in the cluster state in closed state
-     */
-    void ensureClosed(final String index) throws InterruptedException {
-        assertTrue(awaitBusy(() -> {
-                            ClusterState state = client().admin().cluster().prepareState().get().getState();
-                            return state.metaData().hasIndex(index) && state.metaData().index(index).getState() == IndexMetaData.State.CLOSE;
-                        }
-                )
-        );
-    }
-
-    /**
-     * Checks that the given index cannot be opened due to incompatible version
-     */
-    void assertUnsupportedIndexHandling(String index) throws Exception {
-        long startTime = System.currentTimeMillis();
-        logger.info("--> Testing old index " + index);
-        String indexName = loadIndex(index);
-        // force reloading dangling indices with a cluster state republish
-        client().admin().cluster().prepareReroute().get();
-        ensureClosed(indexName);
-        try {
-            client().admin().indices().prepareOpen(indexName).get();
-            fail("Shouldn't be able to open an old index");
-        } catch (IllegalStateException ex) {
-            assertThat(ex.getMessage(), containsString("was created before v0.90.0 and wasn't upgraded"));
-        }
-        unloadIndex(indexName);
-        logger.info("--> Done testing " + index + ", took " + ((System.currentTimeMillis() - startTime) / 1000.0) + " seconds");
-    }
-
     void assertOldIndexWorks(String index) throws Exception {
         Version version = extractVersion(index);
         String indexName = loadIndex(index);
         importIndex(indexName);
-        assertIndexSanity(indexName);
+        assertIndexSanity(indexName, version);
         assertBasicSearchWorks(indexName);
         assertBasicAggregationWorks(indexName);
         assertRealtimeGetWorks(indexName);
@@ -343,11 +301,22 @@ public class OldIndexBackwardsCompatibilityIT extends ESIntegTestCase {
                 version.luceneVersion.minor == Version.CURRENT.luceneVersion.minor;
     }
 
-    void assertIndexSanity(String indexName) {
+    void assertIndexSanity(String indexName, Version indexCreated) {
         GetIndexResponse getIndexResponse = client().admin().indices().prepareGetIndex().addIndices(indexName).get();
         assertEquals(1, getIndexResponse.indices().length);
         assertEquals(indexName, getIndexResponse.indices()[0]);
+        Version actualVersionCreated = Version.indexCreated(getIndexResponse.getSettings().get(indexName));
+        assertEquals(indexCreated, actualVersionCreated);
         ensureYellow(indexName);
+        IndicesSegmentResponse segmentsResponse = client().admin().indices().prepareSegments(indexName).get();
+        IndexSegments segments = segmentsResponse.getIndices().get(indexName);
+        for (IndexShardSegments indexShardSegments : segments) {
+            for (ShardSegments shardSegments : indexShardSegments) {
+                for (Segment segment : shardSegments) {
+                    assertEquals(indexCreated.luceneVersion, segment.version);
+                }
+            }
+        }
         SearchResponse test = client().prepareSearch(indexName).get();
         assertThat(test.getHits().getTotalHits(), greaterThanOrEqualTo(1l));
     }
@@ -369,13 +338,6 @@ public class OldIndexBackwardsCompatibilityIT extends ESIntegTestCase {
         searchRsp = searchReq.get();
         ElasticsearchAssertions.assertNoFailures(searchRsp);
         assertEquals(numDocs, searchRsp.getHits().getTotalHits());
-
-        logger.info("--> testing missing filter");
-        // the field for the missing filter here needs to be different than the exists filter above, to avoid being found in the cache
-        searchReq = client().prepareSearch(indexName).setQuery(QueryBuilders.missingQuery("long_sort"));
-        searchRsp = searchReq.get();
-        ElasticsearchAssertions.assertNoFailures(searchRsp);
-        assertEquals(0, searchRsp.getHits().getTotalHits());
     }
 
     void assertBasicAggregationWorks(String indexName) {

@@ -26,12 +26,17 @@ import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.warmer.IndexWarmersMetaData;
 import org.elasticsearch.test.ESIntegTestCase;
 import org.elasticsearch.test.ESIntegTestCase.ClusterScope;
-import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.List;
 
-import static org.elasticsearch.cluster.metadata.IndexMetaData.*;
+import static org.elasticsearch.cluster.metadata.IndexMetaData.INDEX_METADATA_BLOCK;
+import static org.elasticsearch.cluster.metadata.IndexMetaData.INDEX_READ_BLOCK;
+import static org.elasticsearch.cluster.metadata.IndexMetaData.INDEX_READ_ONLY_BLOCK;
+import static org.elasticsearch.cluster.metadata.IndexMetaData.SETTING_BLOCKS_METADATA;
+import static org.elasticsearch.cluster.metadata.IndexMetaData.SETTING_BLOCKS_READ;
+import static org.elasticsearch.cluster.metadata.IndexMetaData.SETTING_BLOCKS_WRITE;
+import static org.elasticsearch.cluster.metadata.IndexMetaData.SETTING_READ_ONLY;
 import static org.elasticsearch.cluster.metadata.MetaData.CLUSTER_READ_ONLY_BLOCK;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertBlocked;
@@ -39,8 +44,6 @@ import static org.hamcrest.Matchers.equalTo;
 
 @ClusterScope(scope = ESIntegTestCase.Scope.TEST)
 public class IndicesWarmerBlocksIT extends ESIntegTestCase {
-
-    @Test
     public void testPutWarmerWithBlocks() {
         createIndex("test-blocks");
         ensureGreen("test-blocks");
@@ -91,7 +94,6 @@ public class IndicesWarmerBlocksIT extends ESIntegTestCase {
         }
     }
 
-    @Test
     public void testGetWarmerWithBlocks() {
         createIndex("test-blocks");
         ensureGreen("test-blocks");
@@ -124,7 +126,6 @@ public class IndicesWarmerBlocksIT extends ESIntegTestCase {
         }
     }
 
-    @Test
     public void testDeleteWarmerWithBlocks() {
         createIndex("test-blocks");
         ensureGreen("test-blocks");

@@ -1,18 +1,22 @@
 #!/bin/sh
 
-CORE_CLASSPATH="$ES_HOME/lib/${project.build.finalName}.jar:$ES_HOME/lib/*"
-
-if [ "x$ES_CLASSPATH" = "x" ]; then
-    ES_CLASSPATH="$CORE_CLASSPATH"
-else
-    ES_CLASSPATH="$ES_CLASSPATH:$CORE_CLASSPATH"
+# check in case a user was using this mechanism
+if [ "x$ES_CLASSPATH" != "x" ]; then
+    cat >&2 << EOF
+Error: Don't modify the classpath with ES_CLASSPATH. Best is to add
+additional elements via the plugin mechanism, or if code must really be
+added to the main classpath, add jars to lib/ (unsupported).
+EOF
+    exit 1
 fi
+
+ES_CLASSPATH="$ES_HOME/lib/elasticsearch-${project.version}.jar:$ES_HOME/lib/*"
 
 if [ "x$ES_MIN_MEM" = "x" ]; then
-    ES_MIN_MEM=${packaging.elasticsearch.heap.min}
+    ES_MIN_MEM=${heap.min}
 fi
 if [ "x$ES_MAX_MEM" = "x" ]; then
-    ES_MAX_MEM=${packaging.elasticsearch.heap.max}
+    ES_MAX_MEM=${heap.max}
 fi
 if [ "x$ES_HEAP_SIZE" != "x" ]; then
     ES_MIN_MEM=$ES_HEAP_SIZE

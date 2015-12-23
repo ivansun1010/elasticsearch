@@ -21,15 +21,13 @@ package org.elasticsearch.discovery.ec2;
 
 import org.elasticsearch.cluster.ClusterName;
 import org.elasticsearch.cluster.ClusterService;
-import org.elasticsearch.cluster.settings.ClusterDynamicSettings;
-import org.elasticsearch.cluster.settings.DynamicSettings;
 import org.elasticsearch.common.inject.Inject;
+import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.discovery.DiscoverySettings;
 import org.elasticsearch.discovery.zen.ZenDiscovery;
 import org.elasticsearch.discovery.zen.elect.ElectMasterService;
 import org.elasticsearch.discovery.zen.ping.ZenPingService;
-import org.elasticsearch.node.settings.NodeSettingsService;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
 
@@ -38,12 +36,14 @@ import org.elasticsearch.transport.TransportService;
  */
 public class Ec2Discovery extends ZenDiscovery {
 
+    public static final String EC2 = "ec2";
+
     @Inject
     public Ec2Discovery(Settings settings, ClusterName clusterName, ThreadPool threadPool, TransportService transportService,
-                        ClusterService clusterService, NodeSettingsService nodeSettingsService, ZenPingService pingService,
+                        ClusterService clusterService, ClusterSettings clusterSettings, ZenPingService pingService,
                         DiscoverySettings discoverySettings,
                         ElectMasterService electMasterService) {
-        super(settings, clusterName, threadPool, transportService, clusterService, nodeSettingsService,
+        super(settings, clusterName, threadPool, transportService, clusterService, clusterSettings,
                 pingService, electMasterService, discoverySettings);
     }
 }

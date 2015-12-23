@@ -20,6 +20,7 @@
 package org.elasticsearch.node;
 
 import org.elasticsearch.Build;
+import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.Version;
 import org.elasticsearch.action.ActionModule;
 import org.elasticsearch.cache.recycler.PageCacheRecycler;
@@ -31,7 +32,6 @@ import org.elasticsearch.cluster.ClusterService;
 import org.elasticsearch.cluster.action.index.MappingUpdatedAction;
 import org.elasticsearch.cluster.routing.RoutingService;
 import org.elasticsearch.common.StopWatch;
-import org.elasticsearch.common.collect.Tuple;
 import org.elasticsearch.common.component.Lifecycle;
 import org.elasticsearch.common.component.LifecycleComponent;
 import org.elasticsearch.common.inject.Injector;
@@ -41,9 +41,15 @@ import org.elasticsearch.common.lease.Releasable;
 import org.elasticsearch.common.lease.Releasables;
 import org.elasticsearch.common.logging.ESLogger;
 import org.elasticsearch.common.logging.Loggers;
+import org.elasticsearch.common.network.NetworkAddress;
 import org.elasticsearch.common.network.NetworkModule;
+import org.elasticsearch.common.network.NetworkService;
+import org.elasticsearch.common.settings.ClusterSettings;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.settings.SettingsFilter;
 import org.elasticsearch.common.settings.SettingsModule;
+import org.elasticsearch.common.transport.BoundTransportAddress;
+import org.elasticsearch.common.transport.TransportAddress;
 import org.elasticsearch.discovery.Discovery;
 import org.elasticsearch.discovery.DiscoveryModule;
 import org.elasticsearch.discovery.DiscoveryService;
@@ -55,22 +61,21 @@ import org.elasticsearch.gateway.GatewayAllocator;
 import org.elasticsearch.gateway.GatewayModule;
 import org.elasticsearch.gateway.GatewayService;
 import org.elasticsearch.http.HttpServer;
-import org.elasticsearch.http.HttpServerModule;
-import org.elasticsearch.index.search.shape.ShapeModule;
+import org.elasticsearch.http.HttpServerTransport;
 import org.elasticsearch.indices.IndicesModule;
 import org.elasticsearch.indices.IndicesService;
+import org.elasticsearch.indices.analysis.AnalysisModule;
 import org.elasticsearch.indices.breaker.CircuitBreakerModule;
 import org.elasticsearch.indices.cache.query.IndicesQueryCache;
 import org.elasticsearch.indices.cluster.IndicesClusterStateService;
 import org.elasticsearch.indices.fielddata.cache.IndicesFieldDataCache;
 import org.elasticsearch.indices.memory.IndexingMemoryController;
+import org.elasticsearch.indices.recovery.RecoverySettings;
 import org.elasticsearch.indices.store.IndicesStore;
 import org.elasticsearch.indices.ttl.IndicesTTLService;
-import org.elasticsearch.monitor.MonitorModule;
 import org.elasticsearch.monitor.MonitorService;
 import org.elasticsearch.monitor.jvm.JvmInfo;
 import org.elasticsearch.node.internal.InternalSettingsPreparer;
-import org.elasticsearch.node.settings.NodeSettingsService;
 import org.elasticsearch.percolator.PercolatorModule;
 import org.elasticsearch.percolator.PercolatorService;
 import org.elasticsearch.plugins.Plugin;
@@ -78,7 +83,6 @@ import org.elasticsearch.plugins.PluginsModule;
 import org.elasticsearch.plugins.PluginsService;
 import org.elasticsearch.repositories.RepositoriesModule;
 import org.elasticsearch.rest.RestController;
-import org.elasticsearch.rest.RestModule;
 import org.elasticsearch.script.ScriptModule;
 import org.elasticsearch.script.ScriptService;
 import org.elasticsearch.search.SearchModule;
@@ -87,14 +91,21 @@ import org.elasticsearch.snapshots.SnapshotShardsService;
 import org.elasticsearch.snapshots.SnapshotsService;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.threadpool.ThreadPoolModule;
-import org.elasticsearch.transport.TransportModule;
 import org.elasticsearch.transport.TransportService;
 import org.elasticsearch.tribe.TribeModule;
 import org.elasticsearch.tribe.TribeService;
 import org.elasticsearch.watcher.ResourceWatcherModule;
 import org.elasticsearch.watcher.ResourceWatcherService;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -105,9 +116,6 @@ import static org.elasticsearch.common.settings.Settings.settingsBuilder;
 /**
  * A node represent a node within a cluster (<tt>cluster.name</tt>). The {@link #client()} can be used
  * in order to use a {@link Client} to perform actions/operations against the cluster.
- * <p/>
- * <p>In order to create a node, the {@link NodeBuilder} can be used. When done with it, make sure to
- * call {@link #close()} on it.
  */
 public class Node implements Releasable {
 
@@ -124,30 +132,27 @@ public class Node implements Releasable {
      * Constructs a node with the given settings.
      *
      * @param preparedSettings Base settings to configure the node with
-     * @param loadConfigSettings true if settings should also be loaded and merged from configuration files
      */
-    public Node(Settings preparedSettings, boolean loadConfigSettings) {
-        this(preparedSettings, loadConfigSettings, Version.CURRENT, Collections.<Class<? extends Plugin>>emptyList());
+    public Node(Settings preparedSettings) {
+        this(InternalSettingsPreparer.prepareEnvironment(preparedSettings, null), Version.CURRENT, Collections.<Class<? extends Plugin>>emptyList());
     }
 
-    Node(Settings preparedSettings, boolean loadConfigSettings, Version version, Collection<Class<? extends Plugin>> classpathPlugins) {
-        final Settings pSettings = settingsBuilder().put(preparedSettings)
-                .put(Client.CLIENT_TYPE_SETTING, CLIENT_TYPE).build();
-        Tuple<Settings, Environment> tuple = InternalSettingsPreparer.prepareSettings(pSettings, loadConfigSettings);
-        tuple = new Tuple<>(TribeService.processSettings(tuple.v1()), tuple.v2());
+    protected Node(Environment tmpEnv, Version version, Collection<Class<? extends Plugin>> classpathPlugins) {
+        Settings tmpSettings = settingsBuilder().put(tmpEnv.settings())
+            .put(Client.CLIENT_TYPE_SETTING, CLIENT_TYPE).build();
+        tmpSettings = TribeService.processSettings(tmpSettings);
 
-        ESLogger logger = Loggers.getLogger(Node.class, tuple.v1().get("name"));
-        logger.info("version[{}], pid[{}], build[{}/{}]", version, JvmInfo.jvmInfo().pid(), Build.CURRENT.hashShort(), Build.CURRENT.timestamp());
+        ESLogger logger = Loggers.getLogger(Node.class, tmpSettings.get("name"));
+        logger.info("version[{}], pid[{}], build[{}/{}]", version, JvmInfo.jvmInfo().pid(), Build.CURRENT.shortHash(), Build.CURRENT.date());
 
         logger.info("initializing ...");
 
         if (logger.isDebugEnabled()) {
-            Environment env = tuple.v2();
             logger.debug("using config [{}], data [{}], logs [{}], plugins [{}]",
-                    env.configFile(), Arrays.toString(env.dataFiles()), env.logsFile(), env.pluginsFile());
+                tmpEnv.configFile(), Arrays.toString(tmpEnv.dataFiles()), tmpEnv.logsFile(), tmpEnv.pluginsFile());
         }
 
-        this.pluginsService = new PluginsService(tuple.v1(), tuple.v2(), classpathPlugins);
+        this.pluginsService = new PluginsService(tmpSettings, tmpEnv.modulesFile(), tmpEnv.pluginsFile(), classpathPlugins);
         this.settings = pluginsService.updatedSettings();
         // create the environment based on the finalized (processed) view of the settings
         this.environment = new Environment(this.settings());
@@ -158,11 +163,12 @@ public class Node implements Releasable {
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to created node environment", ex);
         }
-
+        final NetworkService networkService = new NetworkService(settings);
+        final SettingsFilter settingsFilter = new SettingsFilter(settings);
         final ThreadPool threadPool = new ThreadPool(settings);
-
         boolean success = false;
         try {
+            final MonitorService monitorService = new MonitorService(settings, nodeEnvironment, threadPool);
             ModulesBuilder modules = new ModulesBuilder();
             modules.add(new Version.Module(version));
             modules.add(new CircuitBreakerModule(settings));
@@ -171,41 +177,36 @@ public class Node implements Releasable {
                 modules.add(pluginModule);
             }
             modules.add(new PluginsModule(pluginsService));
-            modules.add(new SettingsModule(settings));
-            modules.add(new NodeModule(this));
-            modules.add(new NetworkModule());
-            modules.add(new ScriptModule(settings));
+            modules.add(new SettingsModule(this.settings, settingsFilter));
             modules.add(new EnvironmentModule(environment));
+            modules.add(new NodeModule(this, monitorService));
+            modules.add(new NetworkModule(networkService, settings, false));
+            modules.add(new ScriptModule(this.settings));
             modules.add(new NodeEnvironmentModule(nodeEnvironment));
-            modules.add(new ClusterNameModule(settings));
+            modules.add(new ClusterNameModule(this.settings));
             modules.add(new ThreadPoolModule(threadPool));
-            modules.add(new DiscoveryModule(settings));
-            modules.add(new ClusterModule(settings));
-            modules.add(new RestModule(settings));
-            modules.add(new TransportModule(settings));
-            if (settings.getAsBoolean(HTTP_ENABLED, true)) {
-                modules.add(new HttpServerModule(settings));
-            }
-            modules.add(new IndicesModule(settings));
-            modules.add(new SearchModule(settings));
+            modules.add(new DiscoveryModule(this.settings));
+            modules.add(new ClusterModule(this.settings));
+            modules.add(new IndicesModule());
+            modules.add(new SearchModule());
             modules.add(new ActionModule(false));
-            modules.add(new MonitorModule(settings));
-            modules.add(new GatewayModule());
+            modules.add(new GatewayModule(settings));
             modules.add(new NodeClientModule());
-            modules.add(new ShapeModule());
             modules.add(new PercolatorModule());
             modules.add(new ResourceWatcherModule());
             modules.add(new RepositoriesModule());
             modules.add(new TribeModule());
-
+            modules.add(new AnalysisModule(environment));
 
             pluginsService.processModules(modules);
 
             injector = modules.createInjector();
 
             client = injector.getInstance(Client.class);
-            threadPool.setNodeSettingsService(injector.getInstance(NodeSettingsService.class));
+            threadPool.setClusterSettings(injector.getInstance(ClusterSettings.class));
             success = true;
+        } catch (IOException ex) {
+            throw new ElasticsearchException("failed to bind service", ex);
         } finally {
             if (!success) {
                 nodeEnvironment.close();
@@ -240,10 +241,8 @@ public class Node implements Releasable {
 
         ESLogger logger = Loggers.getLogger(Node.class, settings.get("name"));
         logger.info("starting ...");
-
         // hack around dependency injection problem (for now...)
         injector.getInstance(Discovery.class).setRoutingService(injector.getInstance(RoutingService.class));
-
         for (Class<? extends LifecycleComponent> plugin : pluginsService.nodeServices()) {
             injector.getInstance(plugin).start();
         }
@@ -276,6 +275,15 @@ public class Node implements Releasable {
         }
         injector.getInstance(ResourceWatcherService.class).start();
         injector.getInstance(TribeService.class).start();
+
+        if (System.getProperty("es.tests.portsfile", "false").equals("true")) {
+            if (settings.getAsBoolean("http.enabled", true)) {
+                HttpServerTransport http = injector.getInstance(HttpServerTransport.class);
+                writePortsFile("http", http.boundAddress());
+            }
+            TransportService transport = injector.getInstance(TransportService.class);
+            writePortsFile("transport", transport.boundAddress());
+        }
 
         logger.info("started");
 
@@ -314,6 +322,7 @@ public class Node implements Releasable {
         for (Class<? extends LifecycleComponent> plugin : pluginsService.nodeServices()) {
             injector.getInstance(plugin).stop();
         }
+        injector.getInstance(RecoverySettings.class).close();
         // we should stop this last since it waits for resources to get released
         // if we had scroll searchers etc or recovery going on we wait for to finish.
         injector.getInstance(IndicesService.class).stop();
@@ -426,5 +435,28 @@ public class Node implements Releasable {
 
     public Injector injector() {
         return this.injector;
+    }
+
+    /** Writes a file to the logs dir containing the ports for the given transport type */
+    private void writePortsFile(String type, BoundTransportAddress boundAddress) {
+        Path tmpPortsFile = environment.logsFile().resolve(type + ".ports.tmp");
+        try (BufferedWriter writer = Files.newBufferedWriter(tmpPortsFile, Charset.forName("UTF-8"))) {
+            for (TransportAddress address : boundAddress.boundAddresses()) {
+                InetAddress inetAddress = InetAddress.getByName(address.getAddress());
+                if (inetAddress instanceof Inet6Address && inetAddress.isLinkLocalAddress()) {
+                    // no link local, just causes problems
+                    continue;
+                }
+                writer.write(NetworkAddress.formatAddress(new InetSocketAddress(inetAddress, address.getPort())) + "\n");
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to write ports file", e);
+        }
+        Path portsFile = environment.logsFile().resolve(type + ".ports");
+        try {
+            Files.move(tmpPortsFile, portsFile, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to rename ports file", e);
+        }
     }
 }

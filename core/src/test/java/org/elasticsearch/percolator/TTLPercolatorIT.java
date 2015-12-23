@@ -30,14 +30,13 @@ import org.elasticsearch.index.mapper.MapperParsingException;
 import org.elasticsearch.test.ESIntegTestCase;
 import org.elasticsearch.test.ESIntegTestCase.ClusterScope;
 import org.hamcrest.Matchers;
-import org.junit.Test;
 
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 import static org.elasticsearch.common.settings.Settings.settingsBuilder;
 import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
-import static org.elasticsearch.percolator.PercolatorIT.convertFromTextArray;
+import static org.elasticsearch.percolator.PercolatorTestUtil.convertFromTextArray;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertMatchCount;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertNoFailures;
 import static org.hamcrest.Matchers.arrayContaining;
@@ -48,7 +47,6 @@ import static org.hamcrest.Matchers.equalTo;
  */
 @ClusterScope(scope = ESIntegTestCase.Scope.TEST)
 public class TTLPercolatorIT extends ESIntegTestCase {
-
     private static final long PURGE_INTERVAL = 200;
 
     @Override
@@ -63,7 +61,6 @@ public class TTLPercolatorIT extends ESIntegTestCase {
                 .build();
     }
 
-    @Test
     public void testPercolatingWithTimeToLive() throws Exception {
         final Client client = client();
         ensureGreen();
@@ -155,8 +152,6 @@ public class TTLPercolatorIT extends ESIntegTestCase {
         assertThat(percolateResponse.getMatches(), emptyArray());
     }
 
-
-    @Test
     public void testEnsureTTLDoesNotCreateIndex() throws IOException, InterruptedException {
         ensureGreen();
         client().admin().cluster().prepareUpdateSettings().setTransientSettings(settingsBuilder()
@@ -207,8 +202,5 @@ public class TTLPercolatorIT extends ESIntegTestCase {
         client().admin().indices().prepareCreate("test")
                 .addMapping("type1", typeMapping)
                 .execute().actionGet();
-
-
     }
-
 }

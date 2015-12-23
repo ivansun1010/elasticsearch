@@ -1,3 +1,4 @@
+[[breaking_20_mapping_changes]]
 === Mapping changes
 
 A number of changes have been made to mappings to remove ambiguity and to
@@ -160,7 +161,7 @@ You can no longer create fields with dots in the name.
 
 In 1.x, Elasticsearch would issue a warning if a type name included a dot,
 e.g. `my.type`.  Now that type names are no longer used to distinguish between
-fields in differnt types, this warning has been relaxed: type names may now
+fields in different types, this warning has been relaxed: type names may now
 contain dots, but they may not *begin* with a dot.  The only exception to this
 is the special `.percolator` type.
 
@@ -256,6 +257,18 @@ PUT my_index/my_type/1?routing=bar <2>
 <1> Routing can be marked as required to ensure it is not forgotten during indexing.
 <2> This indexing request uses a `routing` value of `bar`.
 
+==== `_timestamp` and `_ttl` deprecated
+
+The `_timestamp` and `_ttl` fields are deprecated, but will remain functional
+for the remainder of the 2.x series.
+
+Instead of the `_timestamp` field, use a normal <<date,`date`>> field and set
+the value explicitly.
+
+The current `_ttl` functionality will be replaced in a future version with a
+new implementation of TTL, possibly with different semantics, and will not
+depend on the `_timestamp` field.
+
 ==== Analyzer mappings
 
 Previously, `index_analyzer` and `search_analyzer` could be set separately,
@@ -301,6 +314,10 @@ PUT my_index/my_type/1
 }
 -------------------------
 <1> Has `format`: `"strict_date_optional_time||epoch_millis"`.
+
+==== `mapping.date.round_ceil` setting
+
+The `mapping.date.round_ceil` setting for date math parsing has been removed.
 
 [[migration-bool-fields]]
 ==== Boolean fields
@@ -365,7 +382,7 @@ The ability to specify mappings in configuration files has been removed. To
 specify default mappings that apply to multiple indexes, use
 <<indices-templates,index templates>> instead.
 
-Along with this change, the following settings have ben removed:
+Along with this change, the following settings have been removed:
 
 * `index.mapper.default_mapping_location`
 * `index.mapper.default_percolator_mapping_location`
@@ -412,3 +429,11 @@ to use the old default of 0. This was done to prevent phrase queries from
 matching across different values of the same term unexpectedly. Specifically,
 100 was chosen to cause phrase queries with slops up to 99 to match only within
 a single value of a field.
+
+==== copy_to and multi fields
+
+A <<copy-to,copy_to>> within a <<multi-fields,multi field>> is ignored from version 2.0 on. With any version after
+2.1 or 2.0.1 creating a mapping that has a copy_to within a multi field will result 
+in an exception.
+
+

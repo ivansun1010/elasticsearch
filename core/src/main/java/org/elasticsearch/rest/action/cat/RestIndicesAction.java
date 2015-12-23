@@ -21,7 +21,6 @@ package org.elasticsearch.rest.action.cat;
 
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthRequest;
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthResponse;
-import org.elasticsearch.action.admin.cluster.health.ClusterIndexHealth;
 import org.elasticsearch.action.admin.cluster.state.ClusterStateRequest;
 import org.elasticsearch.action.admin.cluster.state.ClusterStateResponse;
 import org.elasticsearch.action.admin.indices.stats.IndexStats;
@@ -31,6 +30,7 @@ import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.client.Requests;
 import org.elasticsearch.cluster.ClusterState;
+import org.elasticsearch.cluster.health.ClusterIndexHealth;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.MetaData;
@@ -38,7 +38,10 @@ import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.Table;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.rest.*;
+import org.elasticsearch.rest.RestChannel;
+import org.elasticsearch.rest.RestController;
+import org.elasticsearch.rest.RestRequest;
+import org.elasticsearch.rest.RestResponse;
 import org.elasticsearch.rest.action.support.RestActionListener;
 import org.elasticsearch.rest.action.support.RestResponseListener;
 import org.elasticsearch.rest.action.support.RestTable;
@@ -79,7 +82,8 @@ public class RestIndicesAction extends AbstractCatAction {
             @Override
             public void processResponse(final ClusterStateResponse clusterStateResponse) {
                 ClusterState state = clusterStateResponse.getState();
-                final String[] concreteIndices = indexNameExpressionResolver.concreteIndices(state, IndicesOptions.fromOptions(false, true, true, true), indices);
+                final IndicesOptions concreteIndicesOptions = IndicesOptions.fromOptions(false, true, true, true);
+                final String[] concreteIndices = indexNameExpressionResolver.concreteIndices(state, concreteIndicesOptions, indices);
                 final String[] openIndices = indexNameExpressionResolver.concreteIndices(state, IndicesOptions.lenientExpandOpen(), indices);
                 ClusterHealthRequest clusterHealthRequest = Requests.clusterHealthRequest(openIndices);
                 clusterHealthRequest.local(request.paramAsBoolean("local", clusterHealthRequest.local()));
@@ -87,6 +91,8 @@ public class RestIndicesAction extends AbstractCatAction {
                     @Override
                     public void processResponse(final ClusterHealthResponse clusterHealthResponse) {
                         IndicesStatsRequest indicesStatsRequest = new IndicesStatsRequest();
+                        indicesStatsRequest.indices(concreteIndices);
+                        indicesStatsRequest.indicesOptions(concreteIndicesOptions);
                         indicesStatsRequest.all();
                         client.admin().indices().stats(indicesStatsRequest, new RestResponseListener<IndicesStatsResponse>(channel) {
                             @Override
@@ -191,6 +197,9 @@ public class RestIndicesAction extends AbstractCatAction {
 
         table.addCell("indexing.index_total", "sibling:pri;alias:iito,indexingIndexTotal;default:false;text-align:right;desc:number of indexing ops");
         table.addCell("pri.indexing.index_total", "default:false;text-align:right;desc:number of indexing ops");
+
+        table.addCell("indexing.index_failed", "sibling:pri;alias:iif,indexingIndexFailed;default:false;text-align:right;desc:number of failed indexing ops");
+        table.addCell("pri.indexing.index_failed", "default:false;text-align:right;desc:number of failed indexing ops");
 
         table.addCell("merges.current", "sibling:pri;alias:mc,mergesCurrent;default:false;text-align:right;desc:number of current merges");
         table.addCell("pri.merges.current", "default:false;text-align:right;desc:number of current merges");
@@ -325,8 +334,8 @@ public class RestIndicesAction extends AbstractCatAction {
             table.addCell(indexStats == null ? null : indexStats.getPrimaries().getDocs().getCount());
             table.addCell(indexStats == null ? null : indexStats.getPrimaries().getDocs().getDeleted());
 
-            table.addCell(indexMetaData.creationDate());
-            table.addCell(new DateTime(indexMetaData.creationDate(), DateTimeZone.UTC));
+            table.addCell(indexMetaData.getCreationDate());
+            table.addCell(new DateTime(indexMetaData.getCreationDate(), DateTimeZone.UTC));
 
             table.addCell(indexStats == null ? null : indexStats.getTotal().getStore().size());
             table.addCell(indexStats == null ? null : indexStats.getPrimaries().getStore().size());
@@ -402,6 +411,9 @@ public class RestIndicesAction extends AbstractCatAction {
 
             table.addCell(indexStats == null ? null : indexStats.getTotal().getIndexing().getTotal().getIndexCount());
             table.addCell(indexStats == null ? null : indexStats.getPrimaries().getIndexing().getTotal().getIndexCount());
+
+            table.addCell(indexStats == null ? null : indexStats.getTotal().getIndexing().getTotal().getIndexFailedCount());
+            table.addCell(indexStats == null ? null : indexStats.getPrimaries().getIndexing().getTotal().getIndexFailedCount());
 
             table.addCell(indexStats == null ? null : indexStats.getTotal().getMerge().getCurrent());
             table.addCell(indexStats == null ? null : indexStats.getPrimaries().getMerge().getCurrentSize());

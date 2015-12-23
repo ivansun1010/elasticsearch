@@ -20,7 +20,16 @@
 package org.elasticsearch.cloud.aws.blobstore;
 
 import com.amazonaws.AmazonClientException;
-import com.amazonaws.services.s3.model.*;
+import com.amazonaws.services.s3.model.AbortMultipartUploadRequest;
+import com.amazonaws.services.s3.model.AmazonS3Exception;
+import com.amazonaws.services.s3.model.CompleteMultipartUploadRequest;
+import com.amazonaws.services.s3.model.InitiateMultipartUploadRequest;
+import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.PartETag;
+import com.amazonaws.services.s3.model.PutObjectRequest;
+import com.amazonaws.services.s3.model.PutObjectResult;
+import com.amazonaws.services.s3.model.UploadPartRequest;
+import com.amazonaws.services.s3.model.UploadPartResult;
 import com.amazonaws.util.Base64;
 import org.elasticsearch.common.logging.ESLogger;
 import org.elasticsearch.common.logging.Loggers;
@@ -38,17 +47,17 @@ import java.util.List;
 
 /**
  * DefaultS3OutputStream uploads data to the AWS S3 service using 2 modes: single and multi part.
- * <p/>
+ * <p>
  * When the length of the chunk is lower than buffer_size, the chunk is uploaded with a single request.
  * Otherwise multiple requests are made, each of buffer_size (except the last one which can be lower than buffer_size).
- * <p/>
+ * <p>
  * Quick facts about S3:
- * <p/>
+ * <p>
  * Maximum object size:                 5 TB
  * Maximum number of parts per upload:  10,000
  * Part numbers:                        1 to 10,000 (inclusive)
- * Part size:                           5 MB to 5 GB, last part can be < 5 MB
- * <p/>
+ * Part size:                           5 MB to 5 GB, last part can be &lt; 5 MB
+ * <p>
  * See http://docs.aws.amazon.com/AmazonS3/latest/dev/qfacts.html
  * See http://docs.aws.amazon.com/AmazonS3/latest/dev/uploadobjusingmpu.html
  */
@@ -94,11 +103,6 @@ public class DefaultS3OutputStream extends S3OutputStream {
 
     /**
      * Upload data using a single request.
-     *
-     * @param bytes
-     * @param off
-     * @param len
-     * @throws IOException
      */
     private void upload(byte[] bytes, int off, int len) throws IOException {
         try (ByteArrayInputStream is = new ByteArrayInputStream(bytes, off, len)) {
@@ -138,7 +142,11 @@ public class DefaultS3OutputStream extends S3OutputStream {
             // Every implementation of the Java platform is required to support MD5 (see MessageDigest)
             throw new RuntimeException(impossible);
         }
-        PutObjectResult putObjectResult = blobStore.client().putObject(bucketName, blobName, inputStream, md);
+
+        PutObjectRequest putRequest = new PutObjectRequest(bucketName, blobName, inputStream, md)
+                .withStorageClass(blobStore.getStorageClass())
+                .withCannedAcl(blobStore.getCannedACL());
+        PutObjectResult putObjectResult = blobStore.client().putObject(putRequest);
 
         String localMd5 = Base64.encodeAsString(messageDigest.digest());
         String remoteMd5 = putObjectResult.getContentMd5();
@@ -170,12 +178,16 @@ public class DefaultS3OutputStream extends S3OutputStream {
     }
 
     protected String doInitialize(S3BlobStore blobStore, String bucketName, String blobName, boolean serverSideEncryption) {
-        InitiateMultipartUploadRequest request = new InitiateMultipartUploadRequest(bucketName, blobName);
+        InitiateMultipartUploadRequest request = new InitiateMultipartUploadRequest(bucketName, blobName)
+                .withCannedACL(blobStore.getCannedACL())
+                .withStorageClass(blobStore.getStorageClass());
+
         if (serverSideEncryption) {
             ObjectMetadata md = new ObjectMetadata();
             md.setSSEAlgorithm(ObjectMetadata.AES_256_SERVER_SIDE_ENCRYPTION);
             request.setObjectMetadata(md);
         }
+
         return blobStore.client().initiateMultipartUpload(request).getUploadId();
     }
 

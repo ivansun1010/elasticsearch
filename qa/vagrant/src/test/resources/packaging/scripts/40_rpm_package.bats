@@ -30,10 +30,13 @@
 
 # Load test utilities
 load packaging_test_utils
+load os_package
+load plugins
 
 # Cleans everything for the 1st execution
 setup() {
     skip_not_rpm
+    export_elasticsearch_paths
 }
 
 ##################################
@@ -62,26 +65,29 @@ setup() {
     rpm -qe 'elasticsearch'
 }
 
-##################################
-# Check that the package is correctly installed
-##################################
 @test "[RPM] verify package installation" {
     verify_package_installation
 }
 
-##################################
-# Check that Elasticsearch is working
-##################################
-@test "[RPM] test elasticsearch" {
-    start_elasticsearch_service
+@test "[RPM] elasticsearch isn't started by package install" {
+    # Wait a second to give Elasticsearch a change to start if it is going to.
+    # This isn't perfect by any means but its something.
+    sleep 1
+    ! ps aux | grep elasticsearch | grep java
+}
 
+@test "[RPM] test elasticsearch" {
+    # Install scripts used to test script filters and search templates before
+    # starting Elasticsearch so we don't have to wait for elasticsearch to scan for
+    # them.
+    install_elasticsearch_test_scripts
+    start_elasticsearch_service
     run_elasticsearch_tests
 }
 
-##################################
-# Uninstall RPM package
-##################################
 @test "[RPM] remove package" {
+    # User installed scripts aren't removed so we'll just get them ourselves
+    rm -rf $ESSCRIPTS
     rpm -e 'elasticsearch'
 }
 
@@ -116,4 +122,26 @@ setup() {
     assert_file_not_exist "/usr/lib/systemd/system/elasticsearch.service"
 
     assert_file_not_exist "/etc/sysconfig/elasticsearch"
+}
+
+
+@test "[RPM] reinstall package" {
+    rpm -i elasticsearch-$(cat version).rpm
+}
+
+@test "[RPM] package is installed by reinstall" {
+    rpm -qe 'elasticsearch'
+}
+
+@test "[RPM] verify package reinstallation" {
+    verify_package_installation
+}
+
+@test "[RPM] reremove package" {
+    rpm -e 'elasticsearch'
+}
+
+@test "[RPM] package has been removed again" {
+    run rpm -qe 'elasticsearch'
+    [ "$status" -eq 1 ]
 }

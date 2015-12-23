@@ -21,7 +21,11 @@ package org.elasticsearch.transport.local;
 
 import org.elasticsearch.Version;
 import org.elasticsearch.common.io.stream.BytesStreamOutput;
-import org.elasticsearch.transport.*;
+import org.elasticsearch.transport.RemoteTransportException;
+import org.elasticsearch.transport.TransportChannel;
+import org.elasticsearch.transport.TransportResponse;
+import org.elasticsearch.transport.TransportResponseOptions;
+import org.elasticsearch.transport.TransportServiceAdapter;
 import org.elasticsearch.transport.support.TransportStatus;
 
 import java.io.IOException;
@@ -89,7 +93,7 @@ public class LocalTransportChannel implements TransportChannel {
     public void sendResponse(Throwable error) throws IOException {
         BytesStreamOutput stream = new BytesStreamOutput();
         writeResponseExceptionHeader(stream);
-        RemoteTransportException tx = new RemoteTransportException(targetTransport.nodeName(), targetTransport.boundAddress().boundAddress(), action, error);
+        RemoteTransportException tx = new RemoteTransportException(targetTransport.nodeName(), targetTransport.boundAddress().boundAddresses()[0], action, error);
         stream.writeThrowable(tx);
 
         final byte[] data = stream.bytes().toBytes();

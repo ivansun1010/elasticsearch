@@ -22,6 +22,7 @@ package org.elasticsearch.indices.recovery;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexOutput;
 import org.elasticsearch.ElasticsearchException;
+import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.common.logging.ESLogger;
 import org.elasticsearch.common.logging.Loggers;
@@ -77,7 +78,7 @@ public class RecoveryStatus extends AbstractRefCounted {
         super("recovery_status");
         this.recoveryId = idGenerator.incrementAndGet();
         this.listener = listener;
-        this.logger = Loggers.getLogger(getClass(), indexShard.indexSettings(), indexShard.shardId());
+        this.logger = Loggers.getLogger(getClass(), indexShard.indexSettings().getSettings(), indexShard.shardId());
         this.indexShard = indexShard;
         this.sourceNode = sourceNode;
         this.shardId = indexShard.shardId();
@@ -148,7 +149,7 @@ public class RecoveryStatus extends AbstractRefCounted {
      * cancel the recovery. calling this method will clean temporary files and release the store
      * unless this object is in use (in which case it will be cleaned once all ongoing users call
      * {@link #decRef()}
-     * <p/>
+     * <p>
      * if {@link #CancellableThreads()} was used, the threads will be interrupted.
      */
     public void cancel(String reason) {
@@ -175,7 +176,7 @@ public class RecoveryStatus extends AbstractRefCounted {
                 listener.onRecoveryFailure(state(), e, sendShardFailure);
             } finally {
                 try {
-                    cancellableThreads.cancel("failed recovery [" + e.getMessage() + "]");
+                    cancellableThreads.cancel("failed recovery [" + ExceptionsHelper.stackTrace(e) + "]");
                 } finally {
                     // release the initial reference. recovery files will be cleaned as soon as ref count goes to zero, potentially now
                     decRef();
@@ -219,7 +220,7 @@ public class RecoveryStatus extends AbstractRefCounted {
     /**
      * Creates an {@link org.apache.lucene.store.IndexOutput} for the given file name. Note that the
      * IndexOutput actually point at a temporary file.
-     * <p/>
+     * <p>
      * Note: You can use {@link #getOpenIndexOutput(String)} with the same filename to retrieve the same IndexOutput
      * at a later stage
      */

@@ -74,11 +74,9 @@ Then sit back and wait. There will probably be discussion about the pull request
 Contributing to the Elasticsearch codebase
 ------------------------------------------
 
-**Repository:** [https://github.com/elasticsearch/elasticsearch](https://github.com/elastic/elasticsearch)
+**Repository:** [https://github.com/elastic/elasticsearch](https://github.com/elastic/elasticsearch)
 
-Make sure you have [Maven](http://maven.apache.org) installed, as Elasticsearch uses it as its build system. Integration with IntelliJ and Eclipse should work out of the box. Eclipse users can automatically configure their IDE by running `mvn eclipse:eclipse` and then importing the project into their workspace: `File > Import > Existing project into workspace`.
-
-Elasticsearch also works perfectly with Eclipse's [m2e](http://www.eclipse.org/m2e/).  Once you've installed m2e you can import Elasticsearch as an `Existing Maven Project`.
+Make sure you have [Gradle](http://gradle.org) installed, as Elasticsearch uses it as its build system. Integration with IntelliJ and Eclipse should work out of the box. Eclipse users can automatically configure their IDE: `gradle eclipse` then `File: Import: Existing Projects into Workspace`. Select the option `Search for nested projects`. Additionally you will want to ensure that Eclipse is using 2048m of heap by modifying `eclipse.ini` accordingly to avoid GC overhead errors.
 
 Please follow these formatting guidelines:
 
@@ -86,21 +84,23 @@ Please follow these formatting guidelines:
 * Line width is 140 characters
 * The rest is left to Java coding standards
 * Disable “auto-format on save” to prevent unnecessary format changes. This makes reviews much harder as it generates unnecessary formatting changes. If your IDE supports formatting only modified chunks that is fine to do.
-* Don't worry too much about imports.  Try not to change the order but don't worry about fighting your IDE to stop it from switching from * imports to specific imports or from specific to * imports.
+* Wildcard imports (`import foo.bar.baz.*`) are forbidden and will cause the build to fail. Please attempt to tame your IDE so it doesn't make them and please send a PR against this document with instructions for your IDE if it doesn't contain them.
+ * Eclipse: Preferences->Java->Code Style->Organize Imports. There are two boxes labeled "`Number of (static )? imports needed for .*`". Set their values to 99999 or some other absurdly high value.
+* Don't worry too much about import order. Try not to change it but don't worry about fighting your IDE to stop it from doing so.
 
 To create a distribution from the source, simply run:
 
 ```sh
 cd elasticsearch/
-mvn clean package -DskipTests
+gradle assemble
 ```
 
-You will find the newly built packages under: `./target/releases/`.
+You will find the newly built packages under: `./distribution/build/distributions/`.
 
 Before submitting your changes, run the test suite to make sure that nothing is broken, with:
 
 ```sh
-mvn clean test -Dtests.slow=true
+gradle check
 ```
 
 Source: [Contributing to elasticsearch](https://www.elastic.co/contributing-to-elasticsearch/)

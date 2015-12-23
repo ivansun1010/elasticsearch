@@ -18,12 +18,22 @@
  */
 package org.elasticsearch.search.highlight;
 
-import com.google.common.collect.Maps;
 import org.apache.lucene.search.highlight.Encoder;
-import org.apache.lucene.search.vectorhighlight.*;
+import org.apache.lucene.search.vectorhighlight.BaseFragmentsBuilder;
+import org.apache.lucene.search.vectorhighlight.BoundaryScanner;
+import org.apache.lucene.search.vectorhighlight.CustomFieldQuery;
+import org.apache.lucene.search.vectorhighlight.FieldFragList;
 import org.apache.lucene.search.vectorhighlight.FieldPhraseList.WeightedPhraseInfo;
+import org.apache.lucene.search.vectorhighlight.FieldQuery;
+import org.apache.lucene.search.vectorhighlight.FragListBuilder;
+import org.apache.lucene.search.vectorhighlight.FragmentsBuilder;
+import org.apache.lucene.search.vectorhighlight.ScoreOrderFragmentsBuilder;
+import org.apache.lucene.search.vectorhighlight.SimpleBoundaryScanner;
+import org.apache.lucene.search.vectorhighlight.SimpleFieldFragList;
+import org.apache.lucene.search.vectorhighlight.SimpleFragListBuilder;
+import org.apache.lucene.search.vectorhighlight.SingleFragListBuilder;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.common.text.StringText;
+import org.elasticsearch.common.text.Text;
 import org.elasticsearch.index.mapper.FieldMapper;
 import org.elasticsearch.search.fetch.FetchPhaseExecutionException;
 import org.elasticsearch.search.fetch.FetchSubPhase;
@@ -33,6 +43,7 @@ import org.elasticsearch.search.highlight.vectorhighlight.SourceSimpleFragmentsB
 import org.elasticsearch.search.internal.SearchContext;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -140,15 +151,15 @@ public class FastVectorHighlighter implements Highlighter {
             // we highlight against the low level reader and docId, because if we load source, we want to reuse it if possible
             // Only send matched fields if they were requested to save time.
             if (field.fieldOptions().matchedFields() != null && !field.fieldOptions().matchedFields().isEmpty()) {
-                fragments = cache.fvh.getBestFragments(fieldQuery, hitContext.reader(), hitContext.docId(), mapper.fieldType().names().indexName(), field.fieldOptions().matchedFields(), fragmentCharSize,
+                fragments = cache.fvh.getBestFragments(fieldQuery, hitContext.reader(), hitContext.docId(), mapper.fieldType().name(), field.fieldOptions().matchedFields(), fragmentCharSize,
                         numberOfFragments, entry.fragListBuilder, entry.fragmentsBuilder, field.fieldOptions().preTags(), field.fieldOptions().postTags(), encoder);
             } else {
-                fragments = cache.fvh.getBestFragments(fieldQuery, hitContext.reader(), hitContext.docId(), mapper.fieldType().names().indexName(), fragmentCharSize,
+                fragments = cache.fvh.getBestFragments(fieldQuery, hitContext.reader(), hitContext.docId(), mapper.fieldType().name(), fragmentCharSize,
                         numberOfFragments, entry.fragListBuilder, entry.fragmentsBuilder, field.fieldOptions().preTags(), field.fieldOptions().postTags(), encoder);
             }
 
             if (fragments != null && fragments.length > 0) {
-                return new HighlightField(highlighterContext.fieldName, StringText.convertFromStringArray(fragments));
+                return new HighlightField(highlighterContext.fieldName, Text.convertFromStringArray(fragments));
             }
 
             int noMatchSize = highlighterContext.field.fieldOptions().noMatchSize();
@@ -156,10 +167,10 @@ public class FastVectorHighlighter implements Highlighter {
                 // Essentially we just request that a fragment is built from 0 to noMatchSize using the normal fragmentsBuilder
                 FieldFragList fieldFragList = new SimpleFieldFragList(-1 /*ignored*/);
                 fieldFragList.add(0, noMatchSize, Collections.<WeightedPhraseInfo>emptyList());
-                fragments = entry.fragmentsBuilder.createFragments(hitContext.reader(), hitContext.docId(), mapper.fieldType().names().indexName(),
+                fragments = entry.fragmentsBuilder.createFragments(hitContext.reader(), hitContext.docId(), mapper.fieldType().name(),
                         fieldFragList, 1, field.fieldOptions().preTags(), field.fieldOptions().postTags(), encoder);
                 if (fragments != null && fragments.length > 0) {
-                    return new HighlightField(highlighterContext.fieldName, StringText.convertFromStringArray(fragments));
+                    return new HighlightField(highlighterContext.fieldName, Text.convertFromStringArray(fragments));
                 }
             }
 
@@ -186,6 +197,6 @@ public class FastVectorHighlighter implements Highlighter {
         public org.apache.lucene.search.vectorhighlight.FastVectorHighlighter fvh;
         public FieldQuery noFieldMatchFieldQuery;
         public FieldQuery fieldMatchFieldQuery;
-        public Map<FieldMapper, MapperHighlightEntry> mappers = Maps.newHashMap();
+        public Map<FieldMapper, MapperHighlightEntry> mappers = new HashMap<>();
     }
 }

@@ -43,18 +43,17 @@ import org.elasticsearch.action.admin.indices.create.CreateIndexRequest;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsRequest;
 import org.elasticsearch.action.admin.indices.flush.FlushRequest;
+import org.elasticsearch.action.admin.indices.flush.SyncedFlushRequest;
+import org.elasticsearch.action.admin.indices.forcemerge.ForceMergeRequest;
 import org.elasticsearch.action.admin.indices.mapping.put.PutMappingRequest;
 import org.elasticsearch.action.admin.indices.open.OpenIndexRequest;
-import org.elasticsearch.action.admin.indices.optimize.OptimizeRequest;
 import org.elasticsearch.action.admin.indices.refresh.RefreshRequest;
 import org.elasticsearch.action.admin.indices.segments.IndicesSegmentsRequest;
 import org.elasticsearch.action.admin.indices.settings.put.UpdateSettingsRequest;
 import org.elasticsearch.action.admin.indices.shards.IndicesShardStoresRequest;
 import org.elasticsearch.action.admin.indices.upgrade.post.UpgradeRequest;
 import org.elasticsearch.action.bulk.BulkRequest;
-import org.elasticsearch.action.count.CountRequest;
 import org.elasticsearch.action.delete.DeleteRequest;
-import org.elasticsearch.action.exists.ExistsRequest;
 import org.elasticsearch.action.get.GetRequest;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchRequest;
@@ -125,30 +124,6 @@ public class Requests {
     }
 
     /**
-     * Creates a count request which counts the hits matched against a query. Note, the query itself must be set
-     * either using the JSON source of the query, or using a {@link org.elasticsearch.index.query.QueryBuilder} (using {@link org.elasticsearch.index.query.QueryBuilders}).
-     *
-     * @param indices The indices to count matched documents against a query. Use <tt>null</tt> or <tt>_all</tt> to execute against all indices
-     * @return The count request
-     * @see org.elasticsearch.client.Client#count(org.elasticsearch.action.count.CountRequest)
-     */
-    public static CountRequest countRequest(String... indices) {
-        return new CountRequest(indices);
-    }
-
-    /**
-     * Creates a exists request which checks if any of the hits matched against a query exists. Note, the query itself must be set
-     * either using the JSON source of the query, or using a {@link org.elasticsearch.index.query.QueryBuilder} (using {@link org.elasticsearch.index.query.QueryBuilders}).
-     *
-     * @param indices The indices to count matched documents against a query. Use <tt>null</tt> or <tt>_all</tt> to execute against all indices
-     * @return The exists request
-     * @see org.elasticsearch.client.Client#exists(org.elasticsearch.action.exists.ExistsRequest)
-     */
-    public static ExistsRequest existsRequest(String... indices) {
-        return new ExistsRequest(indices);
-    }
-
-    /**
      * Creates a suggest request for getting suggestions from provided <code>indices</code>.
      * The suggest query has to be set using the JSON source using {@link org.elasticsearch.action.suggest.SuggestRequest#suggest(org.elasticsearch.common.bytes.BytesReference)}.
      * @param indices The indices to suggest from. Use <tt>null</tt> or <tt>_all</tt> to execute against all indices
@@ -157,7 +132,7 @@ public class Requests {
     public static SuggestRequest suggestRequest(String... indices) {
         return new SuggestRequest(indices);
     }
-    
+
     /**
      * Creates a search request against one or more indices. Note, the search source must be set either using the
      * actual JSON search source, or the {@link org.elasticsearch.search.builder.SearchSourceBuilder}.
@@ -292,14 +267,25 @@ public class Requests {
     }
 
     /**
-     * Creates an optimize request.
+     * Creates a synced flush indices request.
      *
-     * @param indices The indices to optimize. Use <tt>null</tt> or <tt>_all</tt> to execute against all indices
-     * @return The optimize request
-     * @see org.elasticsearch.client.IndicesAdminClient#optimize(org.elasticsearch.action.admin.indices.optimize.OptimizeRequest)
+     * @param indices The indices to sync flush. Use <tt>null</tt> or <tt>_all</tt> to execute against all indices
+     * @return The synced flush request
+     * @see org.elasticsearch.client.IndicesAdminClient#syncedFlush(SyncedFlushRequest)
      */
-    public static OptimizeRequest optimizeRequest(String... indices) {
-        return new OptimizeRequest(indices);
+    public static SyncedFlushRequest syncedFlushRequest(String... indices) {
+        return new SyncedFlushRequest(indices);
+    }
+
+    /**
+     * Creates a force merge request.
+     *
+     * @param indices The indices to force merge. Use <tt>null</tt> or <tt>_all</tt> to execute against all indices
+     * @return The force merge request
+     * @see org.elasticsearch.client.IndicesAdminClient#forceMerge(org.elasticsearch.action.admin.indices.forcemerge.ForceMergeRequest)
+     */
+    public static ForceMergeRequest forceMergeRequest(String... indices) {
+        return new ForceMergeRequest(indices);
     }
 
     /**

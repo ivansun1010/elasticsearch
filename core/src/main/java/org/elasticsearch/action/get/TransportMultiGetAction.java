@@ -19,7 +19,6 @@
 
 package org.elasticsearch.action.get;
 
-import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.HandledTransportAction;
@@ -49,7 +48,7 @@ public class TransportMultiGetAction extends HandledTransportAction<MultiGetRequ
     public TransportMultiGetAction(Settings settings, ThreadPool threadPool, TransportService transportService,
                                    ClusterService clusterService, TransportShardMultiGetAction shardAction,
                                    ActionFilters actionFilters, IndexNameExpressionResolver indexNameExpressionResolver) {
-        super(settings, MultiGetAction.NAME, threadPool, transportService, actionFilters, indexNameExpressionResolver, MultiGetRequest.class);
+        super(settings, MultiGetAction.NAME, threadPool, transportService, actionFilters, indexNameExpressionResolver, MultiGetRequest::new);
         this.clusterService = clusterService;
         this.shardAction = shardAction;
     }
@@ -69,7 +68,7 @@ public class TransportMultiGetAction extends HandledTransportAction<MultiGetRequ
                 responses.set(i, new MultiGetItemResponse(null, new MultiGetResponse.Failure(item.index(), item.type(), item.id(), new IndexNotFoundException(item.index()))));
                 continue;
             }
-            item.routing(clusterState.metaData().resolveIndexRouting(item.routing(), item.index()));
+            item.routing(clusterState.metaData().resolveIndexRouting(item.parent(), item.routing(), item.index()));
             String concreteSingleIndex = indexNameExpressionResolver.concreteSingleIndex(clusterState, item);
             if (item.routing() == null && clusterState.getMetaData().routingRequired(concreteSingleIndex, item.type())) {
                 responses.set(i, new MultiGetItemResponse(null, new MultiGetResponse.Failure(concreteSingleIndex, item.type(), item.id(),

@@ -36,8 +36,7 @@ import java.util.Map;
  *
  */
 public class InternalIPv4Range extends InternalRange<InternalIPv4Range.Bucket, InternalIPv4Range> {
-
-    public static final long MAX_IP = 4294967296l;
+    public static final long MAX_IP = 1L << 32;
 
     public final static Type TYPE = new Type("ip_range", "iprange");
 

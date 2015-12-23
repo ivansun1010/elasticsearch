@@ -22,14 +22,16 @@ package org.elasticsearch.snapshots;
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.Version;
 import org.elasticsearch.common.ParseFieldMatcher;
-import org.elasticsearch.common.xcontent.*;
+import org.elasticsearch.common.xcontent.FromXContentBuilder;
+import org.elasticsearch.common.xcontent.ToXContent;
+import org.elasticsearch.common.xcontent.XContentBuilder;
+import org.elasticsearch.common.xcontent.XContentBuilderString;
+import org.elasticsearch.common.xcontent.XContentParser;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
-import static java.util.Collections.*;
 
 /**
  * Represent information about snapshot
@@ -93,7 +95,7 @@ public class Snapshot implements Comparable<Snapshot>, ToXContent, FromXContentB
      * Special constructor for the prototype object
      */
     private Snapshot() {
-        this("", (List<String>) EMPTY_LIST, 0);
+        this("", Collections.emptyList(), 0);
     }
 
     private static SnapshotState snapshotState(String reason, List<SnapshotShardFailure> shardFailures) {
@@ -164,7 +166,7 @@ public class Snapshot implements Comparable<Snapshot>, ToXContent, FromXContentB
 
     /**
      * Returns time when snapshot ended
-     * <p/>
+     * <p>
      * Can be 0L if snapshot is still running
      *
      * @return snapshot end time
@@ -227,7 +229,7 @@ public class Snapshot implements Comparable<Snapshot>, ToXContent, FromXContentB
     @Override
     public int hashCode() {
         int result = name.hashCode();
-        result = 31 * result + (int) (startTime ^ (startTime >>> 32));
+        result = 31 * result + Long.hashCode(startTime);
         return result;
     }
 

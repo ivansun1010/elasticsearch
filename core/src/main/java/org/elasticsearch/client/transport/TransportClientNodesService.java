@@ -20,7 +20,6 @@
 package org.elasticsearch.client.transport;
 
 import com.carrotsearch.hppc.cursors.ObjectCursor;
-import com.google.common.collect.Sets;
 import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.Version;
 import org.elasticsearch.action.ActionListener;
@@ -286,7 +285,7 @@ public class TransportClientNodesService extends AbstractComponent {
 
     private void ensureNodesAreAvailable(List<DiscoveryNode> nodes) {
         if (nodes.isEmpty()) {
-            String message = String.format(Locale.ROOT, "None of the configured nodes are available: %s", nodes);
+            String message = String.format(Locale.ROOT, "None of the configured nodes are available: %s", this.listedNodes);
             throw new NoNodeAvailableException(message);
         }
     }
@@ -360,7 +359,7 @@ public class TransportClientNodesService extends AbstractComponent {
                 try {
                     LivenessResponse livenessResponse = transportService.submitRequest(listedNode, TransportLivenessAction.NAME,
                             headers.applyTo(new LivenessRequest()),
-                            TransportRequestOptions.options().withType(TransportRequestOptions.Type.STATE).withTimeout(pingTimeout),
+                            TransportRequestOptions.builder().withType(TransportRequestOptions.Type.STATE).withTimeout(pingTimeout).build(),
                             new FutureTransportResponseHandler<LivenessResponse>() {
                                 @Override
                                 public LivenessResponse newInstance() {
@@ -396,7 +395,7 @@ public class TransportClientNodesService extends AbstractComponent {
         protected void doSample() {
             // the nodes we are going to ping include the core listed nodes that were added
             // and the last round of discovered nodes
-            Set<DiscoveryNode> nodesToPing = Sets.newHashSet();
+            Set<DiscoveryNode> nodesToPing = new HashSet<>();
             for (DiscoveryNode node : listedNodes) {
                 nodesToPing.add(node);
             }
@@ -431,7 +430,7 @@ public class TransportClientNodesService extends AbstractComponent {
                             }
                             transportService.sendRequest(listedNode, ClusterStateAction.NAME,
                                     headers.applyTo(Requests.clusterStateRequest().clear().nodes(true).local(true)),
-                                    TransportRequestOptions.options().withType(TransportRequestOptions.Type.STATE).withTimeout(pingTimeout),
+                                    TransportRequestOptions.builder().withType(TransportRequestOptions.Type.STATE).withTimeout(pingTimeout).build(),
                                     new BaseTransportResponseHandler<ClusterStateResponse>() {
 
                                         @Override

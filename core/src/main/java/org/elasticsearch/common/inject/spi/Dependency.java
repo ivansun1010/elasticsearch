@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2008 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,18 +16,18 @@
 
 package org.elasticsearch.common.inject.spi;
 
-import com.google.common.collect.ImmutableSet;
 import org.elasticsearch.common.inject.Key;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
 
+import static java.util.Collections.unmodifiableSet;
+
 /**
  * A variable that can be resolved by an injector.
- * <p/>
- * <p>Use {@link #get} to build a freestanding dependency, or {@link InjectionPoint} to build one
+ * <p>
+ * Use {@link #get} to build a freestanding dependency, or {@link InjectionPoint} to build one
  * that's attached to a constructor, method or field.
  *
  * @author crazybob@google.com (Bob Lee)
@@ -60,11 +60,11 @@ public final class Dependency<T> {
      * Returns the dependencies from the given injection points.
      */
     public static Set<Dependency<?>> forInjectionPoints(Set<InjectionPoint> injectionPoints) {
-        List<Dependency<?>> dependencies = new ArrayList<>();
+        Set<Dependency<?>> dependencies = new HashSet<>();
         for (InjectionPoint injectionPoint : injectionPoints) {
             dependencies.addAll(injectionPoint.getDependencies());
         }
-        return ImmutableSet.copyOf(dependencies);
+        return unmodifiableSet(dependencies);
     }
 
     /**

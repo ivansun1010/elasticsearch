@@ -21,7 +21,10 @@ package org.elasticsearch.cluster.routing.allocation.command;
 
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.cluster.node.DiscoveryNode;
-import org.elasticsearch.cluster.routing.*;
+import org.elasticsearch.cluster.routing.RoutingNode;
+import org.elasticsearch.cluster.routing.RoutingNodes;
+import org.elasticsearch.cluster.routing.ShardRouting;
+import org.elasticsearch.cluster.routing.UnassignedInfo;
 import org.elasticsearch.cluster.routing.allocation.RerouteExplanation;
 import org.elasticsearch.cluster.routing.allocation.RoutingAllocation;
 import org.elasticsearch.cluster.routing.allocation.decider.Decision;
@@ -34,7 +37,6 @@ import org.elasticsearch.index.shard.ShardId;
 
 import java.io.IOException;
 
-import static org.elasticsearch.cluster.routing.ShardRoutingState.INITIALIZING;
 import static org.elasticsearch.cluster.routing.ShardRoutingState.RELOCATING;
 
 /**
@@ -126,7 +128,6 @@ public class CancelAllocationCommand implements AllocationCommand {
      * 
      * @param shardId id of the shard which allocation should be canceled
      * @param node id of the node that manages the shard which allocation should be canceled
-     * @param allowPrimary 
      */
     public CancelAllocationCommand(ShardId shardId, String node, boolean allowPrimary) {
         this.shardId = shardId;

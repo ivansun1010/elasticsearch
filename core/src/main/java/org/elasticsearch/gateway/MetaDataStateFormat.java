@@ -18,9 +18,6 @@
  */
 package org.elasticsearch.gateway;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Collections2;
-
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.IndexFormatTooNewException;
@@ -45,7 +42,11 @@ import org.elasticsearch.common.xcontent.XContentType;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.file.*;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -100,8 +101,12 @@ public abstract class MetaDataStateFormat<T> {
      * @throws IOException if an IOException occurs
      */
     public final void write(final T state, final long version, final Path... locations) throws IOException {
-        Preconditions.checkArgument(locations != null, "Locations must not be null");
-        Preconditions.checkArgument(locations.length > 0, "One or more locations required");
+        if (locations == null) {
+            throw new IllegalArgumentException("Locations must not be null");
+        }
+        if (locations.length <= 0) {
+            throw new IllegalArgumentException("One or more locations required");
+        }
         final long maxStateId = findMaxStateId(prefix, locations)+1;
         assert maxStateId >= 0 : "maxStateId must be positive but was: [" + maxStateId + "]";
         final String fileName = prefix + maxStateId + STATE_FILE_EXTENSION;

@@ -23,12 +23,14 @@ import com.carrotsearch.hppc.LongLongHashMap;
 import com.carrotsearch.hppc.LongLongMap;
 import com.carrotsearch.hppc.cursors.LongLongCursor;
 import org.elasticsearch.test.ESSingleNodeTestCase;
-import org.junit.Test;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
 
 public class LongHashTests extends ESSingleNodeTestCase {
-
     LongHash hash;
 
     private void newHash() {
@@ -86,7 +88,6 @@ public class LongHashTests extends ESSingleNodeTestCase {
         hash.close();
     }
 
-    @Test
     public void testSize() {
         int num = scaledRandomIntBetween(2, 20);
         for (int j = 0; j < num; j++) {
@@ -106,7 +107,6 @@ public class LongHashTests extends ESSingleNodeTestCase {
         hash.close();
     }
 
-    @Test
     public void testKey() {
         int num = scaledRandomIntBetween(2, 20);
         for (int j = 0; j < num; j++) {
@@ -138,7 +138,6 @@ public class LongHashTests extends ESSingleNodeTestCase {
         hash.close();
     }
 
-    @Test
     public void testAdd() {
         int num = scaledRandomIntBetween(2, 20);
         for (int j = 0; j < num; j++) {
@@ -167,7 +166,6 @@ public class LongHashTests extends ESSingleNodeTestCase {
         hash.close();
     }
 
-    @Test
     public void testFind() throws Exception {
         int num = scaledRandomIntBetween(2, 20);
         for (int j = 0; j < num; j++) {
@@ -206,5 +204,4 @@ public class LongHashTests extends ESSingleNodeTestCase {
             assertTrue("key: " + key + " count: " + count + " long: " + l, key < count);
         }
     }
-
 }

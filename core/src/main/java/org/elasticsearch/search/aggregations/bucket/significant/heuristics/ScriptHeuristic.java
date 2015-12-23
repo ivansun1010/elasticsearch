@@ -29,7 +29,7 @@ import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.logging.ESLoggerFactory;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentParser;
-import org.elasticsearch.index.query.QueryParsingException;
+import org.elasticsearch.index.query.QueryShardException;
 import org.elasticsearch.script.ExecutableScript;
 import org.elasticsearch.script.Script;
 import org.elasticsearch.script.Script.ScriptField;
@@ -41,9 +41,9 @@ import org.elasticsearch.search.aggregations.InternalAggregation;
 import org.elasticsearch.search.internal.SearchContext;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
-
-import static com.google.common.collect.Maps.newHashMap;
 
 public class ScriptHeuristic extends SignificanceHeuristic {
 
@@ -87,7 +87,7 @@ public class ScriptHeuristic extends SignificanceHeuristic {
 
     @Override
     public void initialize(InternalAggregation.ReduceContext context) {
-        searchScript = context.scriptService().executable(script, ScriptContext.Standard.AGGS, context);
+        searchScript = context.scriptService().executable(script, ScriptContext.Standard.AGGS, context, Collections.emptyMap());
         searchScript.setNextVar("_subset_freq", subsetDfHolder);
         searchScript.setNextVar("_subset_size", subsetSizeHolder);
         searchScript.setNextVar("_superset_freq", supersetDfHolder);
@@ -135,7 +135,7 @@ public class ScriptHeuristic extends SignificanceHeuristic {
 
         @Override
         public SignificanceHeuristic parse(XContentParser parser, ParseFieldMatcher parseFieldMatcher, SearchContext context)
-                throws IOException, QueryParsingException {
+                throws IOException, QueryShardException {
             String heuristicName = parser.currentName();
             Script script = null;
             XContentParser.Token token;
@@ -162,7 +162,7 @@ public class ScriptHeuristic extends SignificanceHeuristic {
                 ScriptParameterValue scriptValue = scriptParameterParser.getDefaultScriptParameterValue();
                 if (scriptValue != null) {
                     if (params == null) {
-                        params = newHashMap();
+                        params = new HashMap<>();
                     }
                     script = new Script(scriptValue.script(), scriptValue.scriptType(), scriptParameterParser.lang(), params);
                 }
@@ -175,7 +175,7 @@ public class ScriptHeuristic extends SignificanceHeuristic {
             }
             ExecutableScript searchScript;
             try {
-                searchScript = scriptService.executable(script, ScriptContext.Standard.AGGS, context);
+                searchScript = scriptService.executable(script, ScriptContext.Standard.AGGS, context, Collections.emptyMap());
             } catch (Exception e) {
                 throw new ElasticsearchParseException("failed to parse [{}] significance heuristic. the script [{}] could not be loaded", e, script, heuristicName);
             }

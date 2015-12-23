@@ -140,16 +140,16 @@ public abstract class TranslogReader implements Closeable, Comparable<TranslogRe
     @Override
     public void close() throws IOException {
         if (closed.compareAndSet(false, true)) {
-            doClose();
+            channelReference.decRef();
         }
     }
 
-    protected void doClose() throws IOException {
-        channelReference.decRef();
+    protected final boolean isClosed() {
+        return closed.get();
     }
 
     protected void ensureOpen() {
-        if (closed.get()) {
+        if (isClosed()) {
             throw new AlreadyClosedException("translog [" + getGeneration() + "] is already closed");
         }
     }
@@ -170,9 +170,6 @@ public abstract class TranslogReader implements Closeable, Comparable<TranslogRe
      * optionally-existing header in the file. If the file does not exist, or
      * has zero length, returns the latest version. If the header does not
      * exist, assumes Version 0 of the translog file format.
-     * <p/>
-     *
-     * @throws IOException
      */
     public static ImmutableTranslogReader open(ChannelReference channelReference, Checkpoint checkpoint, String translogUUID) throws IOException {
         final FileChannel channel = channelReference.getChannel();

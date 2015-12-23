@@ -37,7 +37,6 @@ import org.elasticsearch.common.util.CollectionUtils;
 import org.elasticsearch.test.ESAllocationTestCase;
 import org.hamcrest.Matcher;
 import org.hamcrest.Matchers;
-import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,10 +48,9 @@ import static org.elasticsearch.common.settings.Settings.settingsBuilder;
 public class AddIncrementallyTests extends ESAllocationTestCase {
     private final ESLogger logger = Loggers.getLogger(AddIncrementallyTests.class);
 
-    @Test
     public void testAddNodesAndIndices() {
         Settings.Builder settings = settingsBuilder();
-        settings.put(ClusterRebalanceAllocationDecider.CLUSTER_ROUTING_ALLOCATION_ALLOW_REBALANCE, ClusterRebalanceAllocationDecider.ClusterRebalanceType.ALWAYS.toString());
+        settings.put(ClusterRebalanceAllocationDecider.CLUSTER_ROUTING_ALLOCATION_ALLOW_REBALANCE_SETTING.getKey(), ClusterRebalanceAllocationDecider.ClusterRebalanceType.ALWAYS.toString());
         AllocationService service = createAllocationService(settings.build());
 
         ClusterState clusterState = initCluster(service, 1, 3, 3, 1);
@@ -93,10 +91,9 @@ public class AddIncrementallyTests extends ESAllocationTestCase {
         logger.debug("ClusterState: {}", clusterState.getRoutingNodes().prettyPrint());
     }
 
-    @Test
     public void testMinimalRelocations() {
         Settings.Builder settings = settingsBuilder();
-        settings.put(ClusterRebalanceAllocationDecider.CLUSTER_ROUTING_ALLOCATION_ALLOW_REBALANCE, ClusterRebalanceAllocationDecider.ClusterRebalanceType.ALWAYS.toString())
+        settings.put(ClusterRebalanceAllocationDecider.CLUSTER_ROUTING_ALLOCATION_ALLOW_REBALANCE_SETTING.getKey(), ClusterRebalanceAllocationDecider.ClusterRebalanceType.ALWAYS.toString())
                 .put("cluster.routing.allocation.node_concurrent_recoveries", 2);
         AllocationService service = createAllocationService(settings.build());
 
@@ -115,7 +112,7 @@ public class AddIncrementallyTests extends ESAllocationTestCase {
         nodes.put(newNode("node2"));
         clusterState = ClusterState.builder(clusterState).nodes(nodes.build()).build();
 
-        RoutingTable routingTable = service.reroute(clusterState).routingTable();
+        RoutingTable routingTable = service.reroute(clusterState, "reroute").routingTable();
         clusterState = ClusterState.builder(clusterState).routingTable(routingTable).build();
         RoutingNodes routingNodes = clusterState.getRoutingNodes();
 
@@ -162,10 +159,9 @@ public class AddIncrementallyTests extends ESAllocationTestCase {
         logger.debug("ClusterState: {}", clusterState.getRoutingNodes().prettyPrint());
     }
 
-    @Test
     public void testMinimalRelocationsNoLimit() {
         Settings.Builder settings = settingsBuilder();
-        settings.put(ClusterRebalanceAllocationDecider.CLUSTER_ROUTING_ALLOCATION_ALLOW_REBALANCE, ClusterRebalanceAllocationDecider.ClusterRebalanceType.ALWAYS.toString())
+        settings.put(ClusterRebalanceAllocationDecider.CLUSTER_ROUTING_ALLOCATION_ALLOW_REBALANCE_SETTING.getKey(), ClusterRebalanceAllocationDecider.ClusterRebalanceType.ALWAYS.toString())
                 .put("cluster.routing.allocation.node_concurrent_recoveries", 100)
                 .put("cluster.routing.allocation.node_initial_primaries_recoveries", 100);
         AllocationService service = createAllocationService(settings.build());
@@ -185,7 +181,7 @@ public class AddIncrementallyTests extends ESAllocationTestCase {
         nodes.put(newNode("node2"));
         clusterState = ClusterState.builder(clusterState).nodes(nodes.build()).build();
 
-        RoutingTable routingTable = service.reroute(clusterState).routingTable();
+        RoutingTable routingTable = service.reroute(clusterState, "reroute").routingTable();
         clusterState = ClusterState.builder(clusterState).routingTable(routingTable).build();
         RoutingNodes routingNodes = clusterState.getRoutingNodes();
 
@@ -235,8 +231,8 @@ public class AddIncrementallyTests extends ESAllocationTestCase {
 
 
     private void assertNumIndexShardsPerNode(ClusterState state, Matcher<Integer> matcher) {
-        for (String index : state.routingTable().indicesRouting().keySet()) {
-            assertNumIndexShardsPerNode(state, index, matcher);
+        for (ObjectCursor<String> index : state.routingTable().indicesRouting().keys()) {
+            assertNumIndexShardsPerNode(state, index.value, matcher);
         }
     }
 
@@ -248,10 +244,10 @@ public class AddIncrementallyTests extends ESAllocationTestCase {
 
 
     private void assertAtLeastOneIndexShardPerNode(ClusterState state) {
-        for (String index : state.routingTable().indicesRouting().keySet()) {
+        for (ObjectCursor<String> index : state.routingTable().indicesRouting().keys()) {
 
             for (RoutingNode node : state.getRoutingNodes()) {
-                assertThat(node.shardsWithState(index, STARTED).size(), Matchers.greaterThanOrEqualTo(1));
+                assertThat(node.shardsWithState(index.value, STARTED).size(), Matchers.greaterThanOrEqualTo(1));
             }
         }
 
@@ -266,7 +262,7 @@ public class AddIncrementallyTests extends ESAllocationTestCase {
 
         clusterState = ClusterState.builder(clusterState).nodes(nodes.build()).build();
 
-        RoutingTable routingTable = service.reroute(clusterState).routingTable();
+        RoutingTable routingTable = service.reroute(clusterState, "reroute").routingTable();
         clusterState = ClusterState.builder(clusterState).routingTable(routingTable).build();
         RoutingNodes routingNodes = clusterState.getRoutingNodes();
 
@@ -311,7 +307,7 @@ public class AddIncrementallyTests extends ESAllocationTestCase {
             nodes.put(newNode("node" + i));
         }
         ClusterState clusterState = ClusterState.builder(org.elasticsearch.cluster.ClusterName.DEFAULT).nodes(nodes).metaData(metaData).routingTable(routingTable).build();
-        routingTable = service.reroute(clusterState).routingTable();
+        routingTable = service.reroute(clusterState, "reroute").routingTable();
         clusterState = ClusterState.builder(clusterState).routingTable(routingTable).build();
         RoutingNodes routingNodes = clusterState.getRoutingNodes();
 
@@ -356,7 +352,7 @@ public class AddIncrementallyTests extends ESAllocationTestCase {
         MetaData metaData = metaDataBuilder.build();
         RoutingTable routingTable = routingTableBuilder.build();
         clusterState = ClusterState.builder(clusterState).metaData(metaData).routingTable(routingTable).build();
-        routingTable = service.reroute(clusterState).routingTable();
+        routingTable = service.reroute(clusterState, "reroute").routingTable();
         clusterState = ClusterState.builder(clusterState).routingTable(routingTable).build();
         RoutingNodes routingNodes = clusterState.getRoutingNodes();
 
@@ -391,7 +387,7 @@ public class AddIncrementallyTests extends ESAllocationTestCase {
         logger.info("Removing [{}] nodes", numNodes);
         DiscoveryNodes.Builder nodes = DiscoveryNodes.builder(clusterState.nodes());
         ArrayList<DiscoveryNode> discoveryNodes = CollectionUtils.iterableAsArrayList(clusterState.nodes());
-        Collections.shuffle(discoveryNodes, getRandom());
+        Collections.shuffle(discoveryNodes, random());
         for (DiscoveryNode node : discoveryNodes) {
             nodes.remove(node.id());
             numNodes--;
@@ -414,7 +410,7 @@ public class AddIncrementallyTests extends ESAllocationTestCase {
         routingNodes = clusterState.getRoutingNodes();
 
         logger.info("rebalancing");
-        routingTable = service.reroute(clusterState).routingTable();
+        routingTable = service.reroute(clusterState, "reroute").routingTable();
         clusterState = ClusterState.builder(clusterState).routingTable(routingTable).build();
         routingNodes = clusterState.getRoutingNodes();
 

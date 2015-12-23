@@ -23,25 +23,27 @@ import org.apache.lucene.index.Fields;
 import org.apache.lucene.util.English;
 import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.Version;
-import org.elasticsearch.action.admin.cluster.health.ClusterHealthStatus;
 import org.elasticsearch.action.admin.indices.alias.Alias;
 import org.elasticsearch.action.admin.indices.analyze.AnalyzeResponse;
 import org.elasticsearch.action.admin.indices.settings.get.GetSettingsResponse;
 import org.elasticsearch.action.admin.indices.stats.IndicesStatsResponse;
-import org.elasticsearch.action.count.CountResponse;
 import org.elasticsearch.action.delete.DeleteResponse;
 import org.elasticsearch.action.explain.ExplainResponse;
-import org.elasticsearch.action.get.*;
+import org.elasticsearch.action.get.GetResponse;
+import org.elasticsearch.action.get.MultiGetItemResponse;
+import org.elasticsearch.action.get.MultiGetRequest;
+import org.elasticsearch.action.get.MultiGetRequestBuilder;
+import org.elasticsearch.action.get.MultiGetResponse;
 import org.elasticsearch.action.index.IndexRequestBuilder;
 import org.elasticsearch.action.index.IndexResponse;
 import org.elasticsearch.action.search.SearchRequestBuilder;
 import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.action.search.SearchType;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.action.termvectors.TermVectorsResponse;
 import org.elasticsearch.action.update.UpdateRequestBuilder;
 import org.elasticsearch.action.update.UpdateResponse;
 import org.elasticsearch.cluster.ClusterState;
+import org.elasticsearch.cluster.health.ClusterHealthStatus;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.cluster.routing.IndexRoutingTable;
 import org.elasticsearch.cluster.routing.IndexShardRoutingTable;
@@ -59,7 +61,6 @@ import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.sort.SortOrder;
 import org.elasticsearch.test.ESBackcompatTestCase;
-import org.junit.Test;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -67,20 +68,27 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 
 import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
+import static org.elasticsearch.index.query.QueryBuilders.constantScoreQuery;
 import static org.elasticsearch.index.query.QueryBuilders.existsQuery;
-import static org.elasticsearch.index.query.QueryBuilders.missingQuery;
-import static org.elasticsearch.index.query.QueryBuilders.*;
-import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.*;
-import static org.hamcrest.Matchers.*;
+import static org.elasticsearch.index.query.QueryBuilders.queryStringQuery;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertHitCount;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertNoFailures;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertSearchHits;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.instanceOf;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
+import static org.hamcrest.Matchers.notNullValue;
 
 /**
  */
 public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
 
     /**
-     * Basic test using Index & Realtime Get with external versioning. This test ensures routing works correctly across versions.
+     * Basic test using Index &amp; Realtime Get with external versioning. This test ensures routing works correctly across versions.
      */
-    @Test
     public void testExternalVersion() throws Exception {
         createIndex("test");
         final boolean routing = randomBoolean();
@@ -102,9 +110,8 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
     }
 
     /**
-     * Basic test using Index & Realtime Get with internal versioning. This test ensures routing works correctly across versions.
+     * Basic test using Index &amp; Realtime Get with internal versioning. This test ensures routing works correctly across versions.
      */
-    @Test
     public void testInternalVersion() throws Exception {
         createIndex("test");
         final boolean routing = randomBoolean();
@@ -128,7 +135,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
     /**
      * Very basic bw compat test with a mixed version cluster random indexing and lookup by ID via term query
      */
-    @Test
     public void testIndexAndSearch() throws Exception {
         createIndex("test");
         int numDocs = randomIntBetween(10, 20);
@@ -145,7 +151,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         assertVersionCreated(compatibilityVersion(), "test");
     }
 
-    @Test
     public void testRecoverFromPreviousVersion() throws ExecutionException, InterruptedException {
         if (backwardsCluster().numNewDataNodes() == 0) {
             backwardsCluster().startNewNode();
@@ -163,7 +168,7 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
             docs[i] = client().prepareIndex("test", "type1", id).setSource("field1", English.intToEnglish(i));
         }
         indexRandom(true, docs);
-        CountResponse countResponse = client().prepareCount().get();
+        SearchResponse countResponse = client().prepareSearch().setSize(0).get();
         assertHitCount(countResponse, numDocs);
 
         if (randomBoolean()) {
@@ -202,7 +207,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
     /**
      * Test that ensures that we will never recover from a newer to an older version (we are not forward compatible)
      */
-    @Test
     public void testNoRecoveryFromNewNodes() throws ExecutionException, InterruptedException {
         assertAcked(prepareCreate("test").setSettings(Settings.builder().put("index.routing.allocation.exclude._name", backwardsCluster().backwardsNodePattern()).put(indexSettings())));
         if (backwardsCluster().numNewDataNodes() == 0) {
@@ -224,11 +228,11 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
             backwardsCluster().startNewNode();
         }
         assertAllShardsOnNodes("test", backwardsCluster().newNodePattern());
-        CountResponse countResponse = client().prepareCount().get();
+        SearchResponse countResponse = client().prepareSearch().setSize(0).get();
         assertHitCount(countResponse, numDocs);
         final int numIters = randomIntBetween(10, 20);
         for (int i = 0; i < numIters; i++) {
-            countResponse = client().prepareCount().get();
+            countResponse = client().prepareSearch().setSize(0).get();
             assertHitCount(countResponse, numDocs);
             assertSimpleSort("num_double", "num_int");
         }
@@ -270,7 +274,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
     /**
      * Upgrades a single node to the current version
      */
-    @Test
     public void testIndexUpgradeSingleNode() throws Exception {
         assertAcked(prepareCreate("test").setSettings(Settings.builder().put("index.routing.allocation.exclude._name", backwardsCluster().newNodePattern()).put(indexSettings())));
         ensureYellow();
@@ -284,7 +287,7 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         assertAllShardsOnNodes("test", backwardsCluster().backwardsNodePattern());
         disableAllocation("test");
         backwardsCluster().allowOnAllNodes("test");
-        CountResponse countResponse = client().prepareCount().get();
+        SearchResponse countResponse = client().prepareSearch().setSize(0).get();
         assertHitCount(countResponse, numDocs);
         backwardsCluster().upgradeOneNode();
         ensureYellow();
@@ -298,7 +301,7 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         ensureYellow();
         final int numIters = randomIntBetween(1, 20);
         for (int i = 0; i < numIters; i++) {
-            assertHitCount(client().prepareCount().get(), numDocs);
+            assertHitCount(client().prepareSearch().setSize(0).get(), numDocs);
             assertSimpleSort("num_double", "num_int");
         }
         assertVersionCreated(compatibilityVersion(), "test");
@@ -309,7 +312,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
      * one node after another is shut down and restarted from a newer version and we verify
      * that all documents are still around after each nodes upgrade.
      */
-    @Test
     public void testIndexRollingUpgrade() throws Exception {
         String[] indices = new String[randomIntBetween(1, 3)];
         for (int i = 0; i < indices.length; i++) {
@@ -333,12 +335,12 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         boolean upgraded;
         do {
             logClusterState();
-            CountResponse countResponse = client().prepareCount().get();
+            SearchResponse countResponse = client().prepareSearch().setSize(0).get();
             assertHitCount(countResponse, numDocs);
             assertSimpleSort("num_double", "num_int");
             upgraded = backwardsCluster().upgradeOneNode();
             ensureYellow();
-            countResponse = client().prepareCount().get();
+            countResponse = client().prepareSearch().setSize(0).get();
             assertHitCount(countResponse, numDocs);
             for (int i = 0; i < numDocs; i++) {
                 docs[i] = client().prepareIndex(indexForDoc[i], "type1", String.valueOf(i)).setSource("field1", English.intToEnglish(i), "num_int", randomInt(), "num_double", randomDouble());
@@ -347,7 +349,7 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         } while (upgraded);
         enableAllocation(indices);
         ensureYellow();
-        CountResponse countResponse = client().prepareCount().get();
+        SearchResponse countResponse = client().prepareSearch().setSize(0).get();
         assertHitCount(countResponse, numDocs);
         assertSimpleSort("num_double", "num_int");
 
@@ -372,7 +374,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
     }
 
 
-    @Test
     public void testUnsupportedFeatures() throws IOException {
         XContentBuilder mapping = XContentBuilder.builder(JsonXContent.jsonXContent)
                 .startObject()
@@ -400,7 +401,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
      * This filter had a major upgrade in 1.3 where we started to index the field names. Lets see if they still work as expected...
      * this test is basically copied from SimpleQueryTests...
      */
-    @Test
     public void testExistsFilter() throws IOException, ExecutionException, InterruptedException {
         int indexId = 0;
         String indexName;
@@ -415,48 +415,32 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
                     client().prepareIndex(indexName, "type1", "3").setSource(jsonBuilder().startObject().startObject("obj2").field("obj2_val", "1").endObject().field("y1", "y_1").field("field2", "value2_3").endObject()),
                     client().prepareIndex(indexName, "type1", "4").setSource(jsonBuilder().startObject().startObject("obj2").field("obj2_val", "1").endObject().field("y2", "y_2").field("field3", "value3_4").endObject()));
 
-            CountResponse countResponse = client().prepareCount().setQuery(filteredQuery(matchAllQuery(), existsQuery("field1"))).get();
+            SearchResponse countResponse = client().prepareSearch().setSize(0).setQuery(existsQuery("field1")).get();
             assertHitCount(countResponse, 2l);
 
-            countResponse = client().prepareCount().setQuery(constantScoreQuery(existsQuery("field1"))).get();
+            countResponse = client().prepareSearch().setSize(0).setQuery(constantScoreQuery(existsQuery("field1"))).get();
             assertHitCount(countResponse, 2l);
 
-            countResponse = client().prepareCount().setQuery(queryStringQuery("_exists_:field1")).get();
+            countResponse = client().prepareSearch().setSize(0).setQuery(queryStringQuery("_exists_:field1")).get();
             assertHitCount(countResponse, 2l);
 
-            countResponse = client().prepareCount().setQuery(filteredQuery(matchAllQuery(), existsQuery("field2"))).get();
+            countResponse = client().prepareSearch().setSize(0).setQuery(existsQuery("field2")).get();
             assertHitCount(countResponse, 2l);
 
-            countResponse = client().prepareCount().setQuery(filteredQuery(matchAllQuery(), existsQuery("field3"))).get();
+            countResponse = client().prepareSearch().setSize(0).setQuery(existsQuery("field3")).get();
             assertHitCount(countResponse, 1l);
 
             // wildcard check
-            countResponse = client().prepareCount().setQuery(filteredQuery(matchAllQuery(), existsQuery("x*"))).get();
+            countResponse = client().prepareSearch().setSize(0).setQuery(existsQuery("x*")).get();
             assertHitCount(countResponse, 2l);
 
             // object check
-            countResponse = client().prepareCount().setQuery(filteredQuery(matchAllQuery(), existsQuery("obj1"))).get();
+            countResponse = client().prepareSearch().setSize(0).setQuery(existsQuery("obj1")).get();
             assertHitCount(countResponse, 2l);
 
-            countResponse = client().prepareCount().setQuery(filteredQuery(matchAllQuery(), missingQuery("field1"))).get();
+            countResponse = client().prepareSearch().setSize(0).setQuery(queryStringQuery("_missing_:field1")).get();
             assertHitCount(countResponse, 2l);
 
-            countResponse = client().prepareCount().setQuery(filteredQuery(matchAllQuery(), missingQuery("field1"))).get();
-            assertHitCount(countResponse, 2l);
-
-            countResponse = client().prepareCount().setQuery(constantScoreQuery(missingQuery("field1"))).get();
-            assertHitCount(countResponse, 2l);
-
-            countResponse = client().prepareCount().setQuery(queryStringQuery("_missing_:field1")).get();
-            assertHitCount(countResponse, 2l);
-
-            // wildcard check
-            countResponse = client().prepareCount().setQuery(filteredQuery(matchAllQuery(), missingQuery("x*"))).get();
-            assertHitCount(countResponse, 2l);
-
-            // object check
-            countResponse = client().prepareCount().setQuery(filteredQuery(matchAllQuery(), missingQuery("obj1"))).get();
-            assertHitCount(countResponse, 2l);
             if (!backwardsCluster().upgradeOneNode()) {
                 break;
             }
@@ -473,7 +457,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         return client().admin().cluster().prepareState().get().getState().nodes().masterNode().getVersion();
     }
 
-    @Test
     public void testDeleteRoutingRequired() throws ExecutionException, InterruptedException, IOException {
         createIndexWithAlias();
         assertAcked(client().admin().indices().preparePutMapping("test").setType("test").setSource(
@@ -510,7 +493,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         assertThat(searchResponse.getHits().totalHits(), equalTo((long) numDocs - 1));
     }
 
-    @Test
     public void testIndexGetAndDelete() throws ExecutionException, InterruptedException {
         createIndexWithAlias();
         ensureYellow("test");
@@ -547,7 +529,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         assertThat(searchResponse.getHits().totalHits(), equalTo((long) numDocs - 1));
     }
 
-    @Test
     public void testUpdate() {
         createIndexWithAlias();
         ensureYellow("test");
@@ -578,7 +559,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         assertThat(getResponse.getSourceAsMap().containsKey("field2"), equalTo(true));
     }
 
-    @Test
     public void testAnalyze() {
         createIndexWithAlias();
         assertAcked(client().admin().indices().preparePutMapping("test").setType("test").setSource("field", "type=string,analyzer=keyword"));
@@ -588,7 +568,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         assertThat(analyzeResponse.getTokens().get(0).getTerm(), equalTo("this is a test"));
     }
 
-    @Test
     public void testExplain() {
         createIndexWithAlias();
         ensureYellow("test");
@@ -605,7 +584,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         assertThat(response.getExplanation().getDetails().length, equalTo(1));
     }
 
-    @Test
     public void testGetTermVector() throws IOException {
         createIndexWithAlias();
         assertAcked(client().admin().indices().preparePutMapping("test").setType("type1").setSource("field", "type=string,term_vector=with_positions_offsets_payloads").get());
@@ -623,7 +601,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         assertThat(fields.terms("field").size(), equalTo(8l));
     }
 
-    @Test
     public void testIndicesStats() {
         createIndex("test");
         ensureYellow("test");
@@ -633,7 +610,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
         assertThat(indicesStatsResponse.getIndices().containsKey("test"), equalTo(true));
     }
 
-    @Test
     public void testMultiGet() throws ExecutionException, InterruptedException {
         createIndexWithAlias();
         ensureYellow("test");
@@ -666,7 +642,6 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
 
     }
 
-    @Test
     public void testScroll() throws ExecutionException, InterruptedException {
         createIndex("test");
         ensureYellow("test");
@@ -680,21 +655,13 @@ public class BasicBackwardsCompatibilityIT extends ESBackcompatTestCase {
 
         int size = randomIntBetween(1, 10);
         SearchRequestBuilder searchRequestBuilder = client().prepareSearch("test").setScroll("1m").setSize(size);
-        boolean scan = randomBoolean();
-        if (scan) {
-            searchRequestBuilder.setSearchType(SearchType.SCAN);
-        }
 
         SearchResponse searchResponse = searchRequestBuilder.get();
         assertThat(searchResponse.getScrollId(), notNullValue());
         assertHitCount(searchResponse, numDocs);
         int hits = 0;
-        if (scan) {
-            assertThat(searchResponse.getHits().getHits().length, equalTo(0));
-        } else {
-            assertThat(searchResponse.getHits().getHits().length, greaterThan(0));
-            hits += searchResponse.getHits().getHits().length;
-        }
+        assertThat(searchResponse.getHits().getHits().length, greaterThan(0));
+        hits += searchResponse.getHits().getHits().length;
 
         try {
             do {

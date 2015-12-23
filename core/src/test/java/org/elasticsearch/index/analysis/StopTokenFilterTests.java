@@ -19,28 +19,25 @@
 
 package org.elasticsearch.index.analysis;
 
-import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.core.Lucene43StopFilter;
 import org.apache.lucene.analysis.core.StopFilter;
 import org.apache.lucene.analysis.core.WhitespaceTokenizer;
 import org.apache.lucene.search.suggest.analyzing.SuggestStopFilter;
 import org.apache.lucene.util.Version;
-import org.elasticsearch.common.inject.ProvisionException;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.settings.Settings.Builder;
 import org.elasticsearch.test.ESTokenStreamTestCase;
-import org.junit.Test;
 
 import java.io.IOException;
 import java.io.StringReader;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.instanceOf;
 
 
 public class StopTokenFilterTests extends ESTokenStreamTestCase {
-
-    @Test(expected = ProvisionException.class)
     public void testPositionIncrementSetting() throws IOException {
         Builder builder = Settings.settingsBuilder().put("index.analysis.filter.my_stop.type", "stop")
                 .put("index.analysis.filter.my_stop.enable_position_increments", false);
@@ -49,11 +46,14 @@ public class StopTokenFilterTests extends ESTokenStreamTestCase {
         }
         builder.put("path.home", createTempDir().toString());
         Settings settings = builder.build();
-        AnalysisService analysisService = AnalysisTestsHelper.createAnalysisServiceFromSettings(settings);
-        analysisService.tokenFilter("my_stop");
+        try {
+            AnalysisTestsHelper.createAnalysisServiceFromSettings(settings);
+            fail("Expected IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            assertThat(e.getMessage(), containsString("enable_position_increments is not supported anymore"));
+        }
     }
 
-    @Test
     public void testCorrectPositionIncrementSetting() throws IOException {
         Builder builder = Settings.settingsBuilder().put("index.analysis.filter.my_stop.type", "stop");
         int thingToDo = random().nextInt(3);
@@ -81,7 +81,6 @@ public class StopTokenFilterTests extends ESTokenStreamTestCase {
         }
     }
 
-    @Test
     public void testDeprecatedPositionIncrementSettingWithVersions() throws IOException {
         Settings settings = Settings.settingsBuilder()
                 .put("index.analysis.filter.my_stop.type", "stop")
@@ -98,7 +97,6 @@ public class StopTokenFilterTests extends ESTokenStreamTestCase {
         assertThat(create, instanceOf(Lucene43StopFilter.class));
     }
 
-    @Test
     public void testThatSuggestStopFilterWorks() throws Exception {
         Settings settings = Settings.settingsBuilder()
                 .put("index.analysis.filter.my_stop.type", "stop")

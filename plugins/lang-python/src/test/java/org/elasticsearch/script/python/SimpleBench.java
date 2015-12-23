@@ -25,6 +25,7 @@ import org.elasticsearch.script.CompiledScript;
 import org.elasticsearch.script.ExecutableScript;
 import org.elasticsearch.script.ScriptService;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -35,7 +36,7 @@ public class SimpleBench {
 
     public static void main(String[] args) {
         PythonScriptEngineService se = new PythonScriptEngineService(Settings.Builder.EMPTY_SETTINGS);
-        Object compiled = se.compile("x + y");
+        Object compiled = se.compile("x + y", Collections.emptyMap());
         CompiledScript compiledScript = new CompiledScript(ScriptService.ScriptType.INLINE, "SimpleBench", "python", compiled);
 
 
@@ -44,14 +45,14 @@ public class SimpleBench {
         for (int i = 0; i < 1000; i++) {
             vars.put("x", i);
             vars.put("y", i + 1);
-            se.execute(compiledScript, vars);
+            se.executable(compiledScript, vars).run();
         }
 
         final long ITER = 100000;
 
         StopWatch stopWatch = new StopWatch().start();
         for (long i = 0; i < ITER; i++) {
-            se.execute(compiledScript, vars);
+            se.executable(compiledScript, vars).run();
         }
         System.out.println("Execute Took: " + stopWatch.stop().lastTaskTime());
 

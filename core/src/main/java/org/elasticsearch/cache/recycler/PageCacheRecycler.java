@@ -19,7 +19,7 @@
 
 package org.elasticsearch.cache.recycler;
 
-import com.google.common.base.Strings;
+import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.component.AbstractComponent;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.recycler.AbstractRecyclerC;
@@ -32,7 +32,10 @@ import org.elasticsearch.threadpool.ThreadPool;
 import java.util.Arrays;
 import java.util.Locale;
 
-import static org.elasticsearch.common.recycler.Recyclers.*;
+import static org.elasticsearch.common.recycler.Recyclers.concurrent;
+import static org.elasticsearch.common.recycler.Recyclers.concurrentDeque;
+import static org.elasticsearch.common.recycler.Recyclers.dequeFactory;
+import static org.elasticsearch.common.recycler.Recyclers.none;
 
 /** A recycler of fixed-size pages. */
 public class PageCacheRecycler extends AbstractComponent {

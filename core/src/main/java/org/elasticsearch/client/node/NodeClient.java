@@ -19,8 +19,12 @@
 
 package org.elasticsearch.client.node;
 
-import com.google.common.collect.ImmutableMap;
-import org.elasticsearch.action.*;
+import org.elasticsearch.action.Action;
+import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.ActionRequest;
+import org.elasticsearch.action.ActionRequestBuilder;
+import org.elasticsearch.action.ActionResponse;
+import org.elasticsearch.action.GenericAction;
 import org.elasticsearch.action.support.TransportAction;
 import org.elasticsearch.client.support.AbstractClient;
 import org.elasticsearch.client.support.Headers;
@@ -30,17 +34,19 @@ import org.elasticsearch.threadpool.ThreadPool;
 
 import java.util.Map;
 
+import static java.util.Collections.unmodifiableMap;
+
 /**
  *
  */
 public class NodeClient extends AbstractClient {
 
-    private final ImmutableMap<GenericAction, TransportAction> actions;
+    private final Map<GenericAction, TransportAction> actions;
 
     @Inject
     public NodeClient(Settings settings, ThreadPool threadPool, Headers headers, Map<GenericAction, TransportAction> actions) {
         super(settings, threadPool, headers);
-        this.actions = ImmutableMap.copyOf(actions);
+        this.actions = unmodifiableMap(actions);
     }
 
     @Override

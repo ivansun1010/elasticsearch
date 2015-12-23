@@ -24,9 +24,8 @@ import org.elasticsearch.script.CompiledScript;
 import org.elasticsearch.script.ExecutableScript;
 import org.elasticsearch.script.ScriptService;
 import org.elasticsearch.test.ESTestCase;
-import org.junit.After;
-import org.junit.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -41,17 +40,9 @@ import static org.hamcrest.Matchers.equalTo;
  */
 public class PythonScriptMultiThreadedTests extends ESTestCase {
 
-    @After
-    public void close() {
-        // We need to clear some system properties
-        System.clearProperty("python.cachedir.skip");
-        System.clearProperty("python.console.encoding");
-    }
-
-    @Test
     public void testExecutableNoRuntimeParams() throws Exception {
         final PythonScriptEngineService se = new PythonScriptEngineService(Settings.Builder.EMPTY_SETTINGS);
-        final Object compiled = se.compile("x + y");
+        final Object compiled = se.compile("x + y", Collections.emptyMap());
         final CompiledScript compiledScript = new CompiledScript(ScriptService.ScriptType.INLINE, "testExecutableNoRuntimeParams", "python", compiled);
         final AtomicBoolean failed = new AtomicBoolean();
 
@@ -93,7 +84,7 @@ public class PythonScriptMultiThreadedTests extends ESTestCase {
     }
 
 
-//    @Test public void testExecutableWithRuntimeParams() throws Exception {
+//    public void testExecutableWithRuntimeParams() throws Exception {
 //        final PythonScriptEngineService se = new PythonScriptEngineService(Settings.Builder.EMPTY_SETTINGS);
 //        final Object compiled = se.compile("x + y");
 //        final AtomicBoolean failed = new AtomicBoolean();
@@ -135,10 +126,9 @@ public class PythonScriptMultiThreadedTests extends ESTestCase {
 //        assertThat(failed.get(), equalTo(false));
 //    }
 
-    @Test
     public void testExecute() throws Exception {
         final PythonScriptEngineService se = new PythonScriptEngineService(Settings.Builder.EMPTY_SETTINGS);
-        final Object compiled = se.compile("x + y");
+        final Object compiled = se.compile("x + y", Collections.emptyMap());
         final CompiledScript compiledScript = new CompiledScript(ScriptService.ScriptType.INLINE, "testExecute", "python", compiled);
         final AtomicBoolean failed = new AtomicBoolean();
 
@@ -158,7 +148,7 @@ public class PythonScriptMultiThreadedTests extends ESTestCase {
                             long addition = x + y;
                             runtimeVars.put("x", x);
                             runtimeVars.put("y", y);
-                            long result = ((Number) se.execute(compiledScript, runtimeVars)).longValue();
+                            long result = ((Number) se.executable(compiledScript, runtimeVars).run()).longValue();
                             assertThat(result, equalTo(addition));
                         }
                     } catch (Throwable t) {

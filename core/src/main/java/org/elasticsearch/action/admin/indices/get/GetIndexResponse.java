@@ -20,7 +20,6 @@
 package org.elasticsearch.action.admin.indices.get;
 
 import com.carrotsearch.hppc.cursors.ObjectObjectCursor;
-
 import org.elasticsearch.action.ActionResponse;
 import org.elasticsearch.cluster.metadata.AliasMetaData;
 import org.elasticsearch.cluster.metadata.MappingMetaData;
@@ -122,7 +121,7 @@ public class GetIndexResponse extends ActionResponse {
                         in.readString(),
                         in.readStringArray(),
                         in.readOptionalBoolean(),
-                        in.readBytesReference())
+                        in.readBoolean() ? new IndexWarmersMetaData.SearchSource(in) : null)
                 );
             }
             warmersMapBuilder.put(key, Collections.unmodifiableList(warmerEntryBuilder));
@@ -173,7 +172,11 @@ public class GetIndexResponse extends ActionResponse {
                 out.writeString(warmerEntry.name());
                 out.writeStringArray(warmerEntry.types());
                 out.writeOptionalBoolean(warmerEntry.requestCache());
-                out.writeBytesReference(warmerEntry.source());
+                boolean hasSource = warmerEntry.source() != null;
+                out.writeBoolean(hasSource);
+                if (hasSource) {
+                    warmerEntry.source().writeTo(out);
+                }
             }
         }
         out.writeVInt(mappings.size());

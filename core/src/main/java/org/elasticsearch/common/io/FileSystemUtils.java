@@ -19,8 +19,6 @@
 
 package org.elasticsearch.common.io;
 
-import com.google.common.collect.Iterators;
-
 import org.apache.lucene.util.IOUtils;
 import org.elasticsearch.common.logging.ESLogger;
 
@@ -31,10 +29,18 @@ import java.io.Reader;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
-import java.nio.file.*;
+import java.nio.file.DirectoryNotEmptyException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.StreamSupport;
 
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static java.nio.file.FileVisitResult.SKIP_SUBTREE;
@@ -100,7 +106,7 @@ public final class FileSystemUtils {
     }
 
     /**
-     * Appends the path to the given base and strips N elements off the path if strip is > 0.
+     * Appends the path to the given base and strips N elements off the path if strip is &gt; 0.
      */
     public static Path append(Path base, Path path, int strip) {
         for (Path subPath : path) {
@@ -273,7 +279,7 @@ public final class FileSystemUtils {
             Files.walkFileTree(source, new TreeCopier(source, destination, true));
         }
     }
-    
+
     // TODO: note that this will fail if source and target are on different NIO.2 filesystems.
 
     static class TreeCopier extends SimpleFileVisitor<Path> {
@@ -328,7 +334,7 @@ public final class FileSystemUtils {
      */
     public static Path[] files(Path from, DirectoryStream.Filter<Path> filter) throws IOException {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(from, filter)) {
-            return Iterators.toArray(stream.iterator(), Path.class);
+            return toArray(stream);
         }
     }
 
@@ -337,7 +343,7 @@ public final class FileSystemUtils {
      */
     public static Path[] files(Path directory) throws IOException {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory)) {
-            return Iterators.toArray(stream.iterator(), Path.class);
+            return toArray(stream);
         }
     }
 
@@ -346,8 +352,12 @@ public final class FileSystemUtils {
      */
     public static Path[] files(Path directory, String glob) throws IOException {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory, glob)) {
-            return Iterators.toArray(stream.iterator(), Path.class);
+            return toArray(stream);
         }
+    }
+
+    private static Path[] toArray(DirectoryStream<Path> stream) {
+        return StreamSupport.stream(stream.spliterator(), false).toArray(length -> new Path[length]);
     }
 
 }

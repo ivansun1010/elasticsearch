@@ -19,7 +19,6 @@
 package org.elasticsearch.percolator;
 
 import com.carrotsearch.hppc.ObjectObjectAssociativeContainer;
-
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.LeafReaderContext;
@@ -38,7 +37,7 @@ import org.elasticsearch.common.HasHeaders;
 import org.elasticsearch.common.ParseFieldMatcher;
 import org.elasticsearch.common.collect.ImmutableOpenMap;
 import org.elasticsearch.common.lease.Releasables;
-import org.elasticsearch.common.text.StringText;
+import org.elasticsearch.common.text.Text;
 import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.index.IndexService;
 import org.elasticsearch.index.analysis.AnalysisService;
@@ -49,7 +48,7 @@ import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.index.mapper.ParsedDocument;
 import org.elasticsearch.index.mapper.object.ObjectMapper;
-import org.elasticsearch.index.query.IndexQueryParserService;
+import org.elasticsearch.index.percolator.PercolatorQueriesRegistry;
 import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.index.similarity.SimilarityService;
@@ -73,9 +72,9 @@ import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.search.internal.ShardSearchRequest;
 import org.elasticsearch.search.lookup.LeafSearchLookup;
 import org.elasticsearch.search.lookup.SearchLookup;
+import org.elasticsearch.search.profile.Profilers;
 import org.elasticsearch.search.query.QuerySearchResult;
 import org.elasticsearch.search.rescore.RescoreSearchContext;
-import org.elasticsearch.search.scan.ScanContext;
 import org.elasticsearch.search.suggest.SuggestionSearchContext;
 
 import java.util.Collections;
@@ -89,6 +88,7 @@ import java.util.concurrent.ConcurrentMap;
  */
 public class PercolateContext extends SearchContext {
 
+    private final PercolatorQueriesRegistry percolateQueryRegistry;
     public boolean limit;
     private int size;
     public boolean doSort;
@@ -102,7 +102,6 @@ public class PercolateContext extends SearchContext {
     private final PageCacheRecycler pageCacheRecycler;
     private final BigArrays bigArrays;
     private final ScriptService scriptService;
-    private final ConcurrentMap<BytesRef, Query> percolateQueries;
     private final int numberOfShards;
     private final Query aliasFilter;
     private final long originNanoTime = System.nanoTime();
@@ -133,13 +132,13 @@ public class PercolateContext extends SearchContext {
         this.indexService = indexService;
         this.fieldDataService = indexService.fieldData();
         this.searchShardTarget = searchShardTarget;
-        this.percolateQueries = indexShard.percolateRegistry().percolateQueries();
+        this.percolateQueryRegistry = indexShard.percolateRegistry();
         this.types = new String[]{request.documentType()};
         this.pageCacheRecycler = pageCacheRecycler;
         this.bigArrays = bigArrays.withCircuitBreaking();
         this.querySearchResult = new QuerySearchResult(0, searchShardTarget);
         this.engineSearcher = indexShard.acquireSearcher("percolate");
-        this.searcher = new ContextIndexSearcher(this, engineSearcher);
+        this.searcher = new ContextIndexSearcher(engineSearcher, indexService.cache().query(), indexShard.getQueryCachingPolicy());
         this.scriptService = scriptService;
         this.numberOfShards = request.getNumberOfShards();
         this.aliasFilter = aliasFilter;
@@ -164,7 +163,7 @@ public class PercolateContext extends SearchContext {
             fields.put(field.name(), new InternalSearchHitField(field.name(), Collections.emptyList()));
         }
         hitContext().reset(
-                new InternalSearchHit(0, "unknown", new StringText(parsedDocument.type()), fields),
+                new InternalSearchHit(0, "unknown", new Text(parsedDocument.type()), fields),
                 atomicReaderContext, 0, docSearcher.searcher()
         );
     }
@@ -179,7 +178,7 @@ public class PercolateContext extends SearchContext {
     }
 
     public ConcurrentMap<BytesRef, Query> percolateQueries() {
-        return percolateQueries;
+        return percolateQueryRegistry.percolateQueries();
     }
 
     public Query percolateQuery() {
@@ -423,11 +422,6 @@ public class PercolateContext extends SearchContext {
     }
 
     @Override
-    public IndexQueryParserService queryParserService() {
-        return indexService.queryParserService();
-    }
-
-    @Override
     public SimilarityService similarityService() {
         return indexService.similarityService();
     }
@@ -449,7 +443,7 @@ public class PercolateContext extends SearchContext {
 
     @Override
     public BitsetFilterCache bitsetFilterCache() {
-        return indexService.bitsetFilterCache();
+        return indexService.cache().bitsetFilterCache();
     }
 
     @Override
@@ -642,18 +636,8 @@ public class PercolateContext extends SearchContext {
     }
 
     @Override
-    public ScanContext scanContext() {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public MappedFieldType smartNameFieldType(String name) {
-        return mapperService().smartNameFieldType(name, types);
-    }
-
-    @Override
-    public MappedFieldType smartNameFieldTypeFromAnyType(String name) {
-        return mapperService().smartNameFieldType(name);
+        return mapperService().fullName(name);
     }
 
     @Override
@@ -739,7 +723,7 @@ public class PercolateContext extends SearchContext {
 
     @Override
     public Set<String> getHeaders() {
-        return Collections.EMPTY_SET;
+        return Collections.emptySet();
     }
 
     @Override
@@ -755,5 +739,10 @@ public class PercolateContext extends SearchContext {
     @Override
     public Map<Class<?>, Collector> queryCollectors() {
         return queryCollectors;
+    }
+
+    @Override
+    public Profilers getProfilers() {
+        throw new UnsupportedOperationException();
     }
 }

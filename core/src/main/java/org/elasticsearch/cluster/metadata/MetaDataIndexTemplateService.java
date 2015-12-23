@@ -19,13 +19,11 @@
 package org.elasticsearch.cluster.metadata;
 
 import com.carrotsearch.hppc.cursors.ObjectCursor;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.elasticsearch.action.admin.indices.alias.Alias;
 import org.elasticsearch.action.support.master.MasterNodeRequest;
 import org.elasticsearch.cluster.ClusterService;
 import org.elasticsearch.cluster.ClusterState;
-import org.elasticsearch.cluster.TimeoutClusterStateUpdateTask;
+import org.elasticsearch.cluster.ClusterStateUpdateTask;
 import org.elasticsearch.common.Priority;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.ValidationException;
@@ -39,6 +37,8 @@ import org.elasticsearch.indices.IndexTemplateMissingException;
 import org.elasticsearch.indices.InvalidIndexTemplateException;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -62,7 +62,7 @@ public class MetaDataIndexTemplateService extends AbstractComponent {
     }
 
     public void removeTemplates(final RemoveRequest request, final RemoveListener listener) {
-        clusterService.submitStateUpdateTask("remove-index-template [" + request.name + "]", Priority.URGENT, new TimeoutClusterStateUpdateTask() {
+        clusterService.submitStateUpdateTask("remove-index-template [" + request.name + "]", new ClusterStateUpdateTask(Priority.URGENT) {
 
             @Override
             public TimeValue timeout() {
@@ -76,7 +76,7 @@ public class MetaDataIndexTemplateService extends AbstractComponent {
 
             @Override
             public ClusterState execute(ClusterState currentState) {
-                Set<String> templateNames = Sets.newHashSet();
+                Set<String> templateNames = new HashSet<>();
                 for (ObjectCursor<String> cursor : currentState.metaData().templates().keys()) {
                     String templateName = cursor.value;
                     if (Regex.simpleMatch(request.name, templateName)) {
@@ -149,7 +149,8 @@ public class MetaDataIndexTemplateService extends AbstractComponent {
         }
         final IndexTemplateMetaData template = templateBuilder.build();
 
-        clusterService.submitStateUpdateTask("create-index-template [" + request.name + "], cause [" + request.cause + "]", Priority.URGENT, new TimeoutClusterStateUpdateTask() {
+        clusterService.submitStateUpdateTask("create-index-template [" + request.name + "], cause [" + request.cause + "]",
+                new ClusterStateUpdateTask(Priority.URGENT) {
 
             @Override
             public TimeValue timeout() {
@@ -222,6 +223,9 @@ public class MetaDataIndexTemplateService extends AbstractComponent {
         for (Alias alias : request.aliases) {
             //we validate the alias only partially, as we don't know yet to which index it'll get applied to
             aliasValidator.validateAliasStandalone(alias);
+            if (request.template.equals(alias.name())) {
+                throw new IllegalArgumentException("Alias [" + alias.name() + "] cannot be the same as the template pattern [" + request.template + "]");
+            }
         }
     }
 
@@ -239,9 +243,9 @@ public class MetaDataIndexTemplateService extends AbstractComponent {
         int order;
         String template;
         Settings settings = Settings.Builder.EMPTY_SETTINGS;
-        Map<String, String> mappings = Maps.newHashMap();
+        Map<String, String> mappings = new HashMap<>();
         List<Alias> aliases = new ArrayList<>();
-        Map<String, IndexMetaData.Custom> customs = Maps.newHashMap();
+        Map<String, IndexMetaData.Custom> customs = new HashMap<>();
 
         TimeValue masterTimeout = MasterNodeRequest.DEFAULT_MASTER_NODE_TIMEOUT;
 

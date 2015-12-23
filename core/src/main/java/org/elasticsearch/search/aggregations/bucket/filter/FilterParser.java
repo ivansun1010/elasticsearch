@@ -19,7 +19,6 @@
 package org.elasticsearch.search.aggregations.bucket.filter;
 
 import org.apache.lucene.search.MatchAllDocsQuery;
-import org.elasticsearch.common.lucene.search.Queries;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.index.query.ParsedQuery;
 import org.elasticsearch.search.aggregations.Aggregator;
@@ -40,7 +39,7 @@ public class FilterParser implements Aggregator.Parser {
 
     @Override
     public AggregatorFactory parse(String aggregationName, XContentParser parser, SearchContext context) throws IOException {
-        ParsedQuery filter = context.queryParserService().parseInnerFilter(parser);
+        ParsedQuery filter = context.indexShard().getQueryShardContext().parseInnerFilter(parser);
 
         return new FilterAggregator.Factory(aggregationName, filter == null ? new MatchAllDocsQuery() : filter.query());
     }

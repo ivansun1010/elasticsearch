@@ -36,13 +36,14 @@ import org.elasticsearch.cluster.block.ClusterBlockLevel;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.routing.GroupShardsIterator;
 import org.elasticsearch.cluster.routing.ShardRouting;
+import org.elasticsearch.common.ParsingException;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.index.IndexService;
 import org.elasticsearch.index.engine.Engine;
-import org.elasticsearch.index.query.IndexQueryParserService;
-import org.elasticsearch.index.query.QueryParsingException;
+import org.elasticsearch.index.query.QueryShardContext;
+import org.elasticsearch.index.query.QueryShardException;
 import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.script.ScriptService;
@@ -80,7 +81,7 @@ public class TransportValidateQueryAction extends TransportBroadcastAction<Valid
                                         ScriptService scriptService, PageCacheRecycler pageCacheRecycler,
                                         BigArrays bigArrays, ActionFilters actionFilters, IndexNameExpressionResolver indexNameExpressionResolver) {
         super(settings, ValidateQueryAction.NAME, threadPool, clusterService, transportService, actionFilters,
-                indexNameExpressionResolver, ValidateQueryRequest.class, ShardValidateQueryRequest.class, ThreadPool.Names.SEARCH);
+                indexNameExpressionResolver, ValidateQueryRequest::new, ShardValidateQueryRequest::new, ThreadPool.Names.SEARCH);
         this.indicesService = indicesService;
         this.scriptService = scriptService;
         this.pageCacheRecycler = pageCacheRecycler;
@@ -161,8 +162,8 @@ public class TransportValidateQueryAction extends TransportBroadcastAction<Valid
     @Override
     protected ShardValidateQueryResponse shardOperation(ShardValidateQueryRequest request) {
         IndexService indexService = indicesService.indexServiceSafe(request.shardId().getIndex());
-        IndexQueryParserService queryParserService = indexService.queryParserService();
-        IndexShard indexShard = indexService.shardSafe(request.shardId().id());
+        IndexShard indexShard = indexService.getShard(request.shardId().id());
+        final QueryShardContext queryShardContext = indexShard.getQueryShardContext();
 
         boolean valid;
         String explanation = null;
@@ -177,9 +178,7 @@ public class TransportValidateQueryAction extends TransportBroadcastAction<Valid
         );
         SearchContext.setCurrent(searchContext);
         try {
-            if (request.source() != null && request.source().length() > 0) {
-                searchContext.parsedQuery(queryParserService.parseQuery(request.source()));
-            }
+            searchContext.parsedQuery(queryShardContext.toQuery(request.query()));
             searchContext.preProcess();
 
             valid = true;
@@ -188,8 +187,8 @@ public class TransportValidateQueryAction extends TransportBroadcastAction<Valid
             }
             if (request.rewrite()) {
                 explanation = getRewrittenQuery(searcher.searcher(), searchContext.query());
-            }   
-        } catch (QueryParsingException e) {
+            }
+        } catch (QueryShardException|ParsingException e) {
             valid = false;
             error = e.getDetailedMessage();
         } catch (AssertionError|IOException e) {

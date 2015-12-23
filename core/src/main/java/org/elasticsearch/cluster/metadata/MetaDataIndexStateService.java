@@ -29,19 +29,14 @@ import org.elasticsearch.cluster.ack.ClusterStateUpdateResponse;
 import org.elasticsearch.cluster.block.ClusterBlock;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
 import org.elasticsearch.cluster.block.ClusterBlocks;
-import org.elasticsearch.cluster.routing.IndexRoutingTable;
-import org.elasticsearch.cluster.routing.IndexShardRoutingTable;
 import org.elasticsearch.cluster.routing.RoutingTable;
-import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.cluster.routing.allocation.AllocationService;
 import org.elasticsearch.cluster.routing.allocation.RoutingAllocation;
 import org.elasticsearch.common.Priority;
 import org.elasticsearch.common.component.AbstractComponent;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.index.Index;
 import org.elasticsearch.index.IndexNotFoundException;
-import org.elasticsearch.indices.IndexPrimaryShardNotAllocatedException;
 import org.elasticsearch.rest.RestStatus;
 
 import java.util.ArrayList;
@@ -75,7 +70,7 @@ public class MetaDataIndexStateService extends AbstractComponent {
         }
 
         final String indicesAsString = Arrays.toString(request.indices());
-        clusterService.submitStateUpdateTask("close-indices " + indicesAsString, Priority.URGENT, new AckedClusterStateUpdateTask<ClusterStateUpdateResponse>(request, listener) {
+        clusterService.submitStateUpdateTask("close-indices " + indicesAsString, new AckedClusterStateUpdateTask<ClusterStateUpdateResponse>(Priority.URGENT, request, listener) {
             @Override
             protected ClusterStateUpdateResponse newResponse(boolean acknowledged) {
                 return new ClusterStateUpdateResponse(acknowledged);
@@ -90,15 +85,7 @@ public class MetaDataIndexStateService extends AbstractComponent {
                         throw new IndexNotFoundException(index);
                     }
 
-                    if (indexMetaData.state() != IndexMetaData.State.CLOSE) {
-                        IndexRoutingTable indexRoutingTable = currentState.routingTable().index(index);
-                        for (IndexShardRoutingTable shard : indexRoutingTable) {
-                            for (ShardRouting shardRouting : shard) {
-                                if (shardRouting.primary() == true && shardRouting.allocatedPostIndexCreate() == false) {
-                                    throw new IndexPrimaryShardNotAllocatedException(new Index(index));
-                                }
-                            }
-                        }
+                    if (indexMetaData.getState() != IndexMetaData.State.CLOSE) {
                         indicesToClose.add(index);
                     }
                 }
@@ -124,7 +111,9 @@ public class MetaDataIndexStateService extends AbstractComponent {
                     rtBuilder.remove(index);
                 }
 
-                RoutingAllocation.Result routingResult = allocationService.reroute(ClusterState.builder(updatedState).routingTable(rtBuilder).build());
+                RoutingAllocation.Result routingResult = allocationService.reroute(
+                        ClusterState.builder(updatedState).routingTable(rtBuilder.build()).build(),
+                        "indices closed [" + indicesAsString + "]");
                 //no explicit wait for other nodes needed as we use AckedClusterStateUpdateTask
                 return ClusterState.builder(updatedState).routingResult(routingResult).build();
             }
@@ -137,7 +126,7 @@ public class MetaDataIndexStateService extends AbstractComponent {
         }
 
         final String indicesAsString = Arrays.toString(request.indices());
-        clusterService.submitStateUpdateTask("open-indices " + indicesAsString, Priority.URGENT, new AckedClusterStateUpdateTask<ClusterStateUpdateResponse>(request, listener) {
+        clusterService.submitStateUpdateTask("open-indices " + indicesAsString, new AckedClusterStateUpdateTask<ClusterStateUpdateResponse>(Priority.URGENT, request, listener) {
             @Override
             protected ClusterStateUpdateResponse newResponse(boolean acknowledged) {
                 return new ClusterStateUpdateResponse(acknowledged);
@@ -151,7 +140,7 @@ public class MetaDataIndexStateService extends AbstractComponent {
                     if (indexMetaData == null) {
                         throw new IndexNotFoundException(index);
                     }
-                    if (indexMetaData.state() != IndexMetaData.State.OPEN) {
+                    if (indexMetaData.getState() != IndexMetaData.State.OPEN) {
                         indicesToOpen.add(index);
                     }
                 }
@@ -181,7 +170,9 @@ public class MetaDataIndexStateService extends AbstractComponent {
                     rtBuilder.addAsFromCloseToOpen(updatedState.metaData().index(index));
                 }
 
-                RoutingAllocation.Result routingResult = allocationService.reroute(ClusterState.builder(updatedState).routingTable(rtBuilder).build());
+                RoutingAllocation.Result routingResult = allocationService.reroute(
+                        ClusterState.builder(updatedState).routingTable(rtBuilder.build()).build(),
+                        "indices opened [" + indicesAsString + "]");
                 //no explicit wait for other nodes needed as we use AckedClusterStateUpdateTask
                 return ClusterState.builder(updatedState).routingResult(routingResult).build();
             }

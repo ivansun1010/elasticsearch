@@ -27,7 +27,14 @@ import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.delete.DeleteRequest;
 import org.elasticsearch.action.delete.DeleteResponse;
-import org.elasticsearch.action.search.*;
+import org.elasticsearch.action.search.ClearScrollRequest;
+import org.elasticsearch.action.search.ClearScrollResponse;
+import org.elasticsearch.action.search.SearchRequest;
+import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.action.search.SearchScrollRequest;
+import org.elasticsearch.action.search.ShardSearchFailure;
+import org.elasticsearch.action.search.TransportSearchAction;
+import org.elasticsearch.action.search.TransportSearchScrollAction;
 import org.elasticsearch.action.support.ActionFilters;
 import org.elasticsearch.action.support.HandledTransportAction;
 import org.elasticsearch.client.Client;
@@ -42,7 +49,9 @@ import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -57,12 +66,12 @@ public class TransportDeleteByQueryAction extends HandledTransportAction<DeleteB
     private final Client client;
 
     @Inject
-    protected TransportDeleteByQueryAction(Settings settings, ThreadPool threadPool, Client client,
+    public TransportDeleteByQueryAction(Settings settings, ThreadPool threadPool, Client client,
                                            TransportSearchAction transportSearchAction,
                                            TransportSearchScrollAction transportSearchScrollAction,
                                            TransportService transportService, ActionFilters actionFilters,
                                            IndexNameExpressionResolver indexNameExpressionResolver) {
-        super(settings, DeleteByQueryAction.NAME, threadPool, transportService, actionFilters, indexNameExpressionResolver, DeleteByQueryRequest.class);
+        super(settings, DeleteByQueryAction.NAME, threadPool, transportService, actionFilters, indexNameExpressionResolver, DeleteByQueryRequest::new);
         this.searchAction = transportSearchAction;
         this.scrollAction = transportSearchScrollAction;
         this.client = client;
@@ -101,15 +110,21 @@ public class TransportDeleteByQueryAction extends HandledTransportAction<DeleteB
 
         void executeScan() {
             try {
-                final SearchRequest scanRequest = new SearchRequest(request.indices()).types(request.types()).indicesOptions(request.indicesOptions());
-                scanRequest.scroll(request.scroll());
+                final SearchRequest scanRequest = new SearchRequest(request)
+                        .indices(request.indices())
+                        .types(request.types())
+                        .indicesOptions(request.indicesOptions())
+                        .scroll(request.scroll());
                 if (request.routing() != null) {
                     scanRequest.routing(request.routing());
                 }
 
+                List<String> fields = new ArrayList<>();
+                fields.add("_routing");
+                fields.add("_parent");
                 SearchSourceBuilder source = new SearchSourceBuilder()
-                        .query(request.source())
-                        .fields("_routing", "_parent")
+                        .query(request.query())
+                        .fields(fields)
                         .sort("_doc") // important for performance
                         .fetchSource(false)
                         .version(true);
@@ -145,7 +160,7 @@ public class TransportDeleteByQueryAction extends HandledTransportAction<DeleteB
         void executeScroll(final String scrollId) {
             try {
                 logger.trace("executing scroll request [{}]", scrollId);
-                scrollAction.execute(new SearchScrollRequest(scrollId).scroll(request.scroll()), new ActionListener<SearchResponse>() {
+                scrollAction.execute(new SearchScrollRequest(request).scrollId(scrollId).scroll(request.scroll()), new ActionListener<SearchResponse>() {
                     @Override
                     public void onResponse(SearchResponse scrollResponse) {
                         deleteHits(scrollId, scrollResponse);
@@ -187,9 +202,9 @@ public class TransportDeleteByQueryAction extends HandledTransportAction<DeleteB
             }
 
             // Delete the scrolled documents using the Bulk API
-            BulkRequest bulkRequest = new BulkRequest();
+            BulkRequest bulkRequest = new BulkRequest(request);
             for (SearchHit doc : docs) {
-                DeleteRequest delete = new DeleteRequest(doc.index(), doc.type(), doc.id()).version(doc.version());
+                DeleteRequest delete = new DeleteRequest(request).index(doc.index()).type(doc.type()).id(doc.id()).version(doc.version());
                 SearchHitField routing = doc.field("_routing");
                 if (routing != null) {
                     delete.routing((String) routing.value());
@@ -273,7 +288,9 @@ public class TransportDeleteByQueryAction extends HandledTransportAction<DeleteB
                 }
 
                 if (Strings.hasText(scrollId)) {
-                    client.prepareClearScroll().addScrollId(scrollId).execute(new ActionListener<ClearScrollResponse>() {
+                    ClearScrollRequest clearScrollRequest = new ClearScrollRequest(request);
+                    clearScrollRequest.addScrollId(scrollId);
+                    client.clearScroll(clearScrollRequest, new ActionListener<ClearScrollResponse>() {
                         @Override
                         public void onResponse(ClearScrollResponse clearScrollResponse) {
                             logger.trace("scroll id [{}] cleared", scrollId);

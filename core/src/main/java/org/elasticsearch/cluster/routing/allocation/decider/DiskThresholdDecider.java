@@ -19,26 +19,31 @@
 
 package org.elasticsearch.cluster.routing.allocation.decider;
 
-import com.google.common.collect.Sets;
+import com.carrotsearch.hppc.ObjectLookupContainer;
+import com.carrotsearch.hppc.cursors.ObjectCursor;
+import com.carrotsearch.hppc.cursors.ObjectObjectCursor;
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.cluster.ClusterInfo;
 import org.elasticsearch.cluster.ClusterInfoService;
 import org.elasticsearch.cluster.DiskUsage;
 import org.elasticsearch.cluster.EmptyClusterInfoService;
+import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.cluster.routing.RoutingNode;
 import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.cluster.routing.ShardRoutingState;
 import org.elasticsearch.cluster.routing.allocation.RoutingAllocation;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.collect.ImmutableOpenMap;
 import org.elasticsearch.common.inject.Inject;
+import org.elasticsearch.common.settings.ClusterSettings;
+import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.unit.RatioValue;
 import org.elasticsearch.common.unit.TimeValue;
-import org.elasticsearch.node.settings.NodeSettingsService;
+import org.elasticsearch.common.util.set.Sets;
 
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -76,53 +81,11 @@ public class DiskThresholdDecider extends AllocationDecider {
     private volatile boolean enabled;
     private volatile TimeValue rerouteInterval;
 
-    public static final String CLUSTER_ROUTING_ALLOCATION_DISK_THRESHOLD_ENABLED = "cluster.routing.allocation.disk.threshold_enabled";
-    public static final String CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK = "cluster.routing.allocation.disk.watermark.low";
-    public static final String CLUSTER_ROUTING_ALLOCATION_HIGH_DISK_WATERMARK = "cluster.routing.allocation.disk.watermark.high";
-    public static final String CLUSTER_ROUTING_ALLOCATION_INCLUDE_RELOCATIONS = "cluster.routing.allocation.disk.include_relocations";
-    public static final String CLUSTER_ROUTING_ALLOCATION_REROUTE_INTERVAL = "cluster.routing.allocation.disk.reroute_interval";
-
-    class ApplySettings implements NodeSettingsService.Listener {
-        @Override
-        public void onRefreshSettings(Settings settings) {
-            String newLowWatermark = settings.get(CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK, null);
-            String newHighWatermark = settings.get(CLUSTER_ROUTING_ALLOCATION_HIGH_DISK_WATERMARK, null);
-            Boolean newRelocationsSetting = settings.getAsBoolean(CLUSTER_ROUTING_ALLOCATION_INCLUDE_RELOCATIONS, null);
-            Boolean newEnableSetting =  settings.getAsBoolean(CLUSTER_ROUTING_ALLOCATION_DISK_THRESHOLD_ENABLED, null);
-            TimeValue newRerouteInterval = settings.getAsTime(CLUSTER_ROUTING_ALLOCATION_REROUTE_INTERVAL, null);
-
-            if (newEnableSetting != null) {
-                logger.info("updating [{}] from [{}] to [{}]", CLUSTER_ROUTING_ALLOCATION_DISK_THRESHOLD_ENABLED,
-                        DiskThresholdDecider.this.enabled, newEnableSetting);
-                DiskThresholdDecider.this.enabled = newEnableSetting;
-            }
-            if (newRelocationsSetting != null) {
-                logger.info("updating [{}] from [{}] to [{}]", CLUSTER_ROUTING_ALLOCATION_INCLUDE_RELOCATIONS,
-                        DiskThresholdDecider.this.includeRelocations, newRelocationsSetting);
-                DiskThresholdDecider.this.includeRelocations = newRelocationsSetting;
-            }
-            if (newLowWatermark != null) {
-                if (!validWatermarkSetting(newLowWatermark, CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK)) {
-                    throw new ElasticsearchParseException("unable to parse low watermark [{}]", newLowWatermark);
-                }
-                logger.info("updating [{}] to [{}]", CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK, newLowWatermark);
-                DiskThresholdDecider.this.freeDiskThresholdLow = 100.0 - thresholdPercentageFromWatermark(newLowWatermark);
-                DiskThresholdDecider.this.freeBytesThresholdLow = thresholdBytesFromWatermark(newLowWatermark, CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK);
-            }
-            if (newHighWatermark != null) {
-                if (!validWatermarkSetting(newHighWatermark, CLUSTER_ROUTING_ALLOCATION_HIGH_DISK_WATERMARK)) {
-                    throw new ElasticsearchParseException("unable to parse high watermark [{}]", newHighWatermark);
-                }
-                logger.info("updating [{}] to [{}]", CLUSTER_ROUTING_ALLOCATION_HIGH_DISK_WATERMARK, newHighWatermark);
-                DiskThresholdDecider.this.freeDiskThresholdHigh = 100.0 - thresholdPercentageFromWatermark(newHighWatermark);
-                DiskThresholdDecider.this.freeBytesThresholdHigh = thresholdBytesFromWatermark(newHighWatermark, CLUSTER_ROUTING_ALLOCATION_HIGH_DISK_WATERMARK);
-            }
-            if (newRerouteInterval != null) {
-                logger.info("updating [{}] to [{}]", CLUSTER_ROUTING_ALLOCATION_REROUTE_INTERVAL, newRerouteInterval);
-                DiskThresholdDecider.this.rerouteInterval = newRerouteInterval;
-            }
-        }
-    }
+    public static final Setting<Boolean> CLUSTER_ROUTING_ALLOCATION_DISK_THRESHOLD_ENABLED_SETTING = Setting.boolSetting("cluster.routing.allocation.disk.threshold_enabled", true, true, Setting.Scope.CLUSTER);
+    public static final Setting<String> CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK_SETTING = new Setting<>("cluster.routing.allocation.disk.watermark.low", "85%", (s) -> validWatermarkSetting(s, "cluster.routing.allocation.disk.watermark.low"), true, Setting.Scope.CLUSTER);
+    public static final Setting<String> CLUSTER_ROUTING_ALLOCATION_HIGH_DISK_WATERMARK_SETTING = new Setting<>("cluster.routing.allocation.disk.watermark.high", "90%", (s) -> validWatermarkSetting(s, "cluster.routing.allocation.disk.watermark.high"), true, Setting.Scope.CLUSTER);
+    public static final Setting<Boolean> CLUSTER_ROUTING_ALLOCATION_INCLUDE_RELOCATIONS_SETTING = Setting.boolSetting("cluster.routing.allocation.disk.include_relocations", true, true, Setting.Scope.CLUSTER);;
+    public static final Setting<TimeValue> CLUSTER_ROUTING_ALLOCATION_REROUTE_INTERVAL_SETTING = Setting.positiveTimeSetting("cluster.routing.allocation.disk.reroute_interval", TimeValue.timeValueSeconds(60), true, Setting.Scope.CLUSTER);
 
     /**
      * Listens for a node to go over the high watermark and kicks off an empty
@@ -164,23 +127,23 @@ public class DiskThresholdDecider extends AllocationDecider {
 
         @Override
         public void onNewInfo(ClusterInfo info) {
-            Map<String, DiskUsage> usages = info.getNodeLeastAvailableDiskUsages();
+            ImmutableOpenMap<String, DiskUsage> usages = info.getNodeLeastAvailableDiskUsages();
             if (usages != null) {
                 boolean reroute = false;
                 String explanation = "";
 
                 // Garbage collect nodes that have been removed from the cluster
                 // from the map that tracks watermark crossing
-                Set<String> nodes = usages.keySet();
+                ObjectLookupContainer<String> nodes = usages.keys();
                 for (String node : nodeHasPassedWatermark) {
                     if (nodes.contains(node) == false) {
                         nodeHasPassedWatermark.remove(node);
                     }
                 }
 
-                for (Map.Entry<String, DiskUsage> entry : usages.entrySet()) {
-                    String node = entry.getKey();
-                    DiskUsage usage = entry.getValue();
+                for (ObjectObjectCursor<String, DiskUsage> entry : usages) {
+                    String node = entry.key;
+                    DiskUsage usage = entry.value;
                     warnAboutDiskIfNeeded(usage);
                     if (usage.getFreeBytes() < DiskThresholdDecider.this.freeBytesThresholdHigh.bytes() ||
                             usage.getFreeDiskAsPercentage() < DiskThresholdDecider.this.freeDiskThresholdHigh) {
@@ -227,38 +190,49 @@ public class DiskThresholdDecider extends AllocationDecider {
         // It's okay the Client is null here, because the empty cluster info
         // service will never actually call the listener where the client is
         // needed. Also this constructor is only used for tests
-        this(settings, new NodeSettingsService(settings), EmptyClusterInfoService.INSTANCE, null);
+        this(settings, new ClusterSettings(settings, ClusterSettings.BUILT_IN_CLUSTER_SETTINGS), EmptyClusterInfoService.INSTANCE, null);
     }
 
     @Inject
-    public DiskThresholdDecider(Settings settings, NodeSettingsService nodeSettingsService, ClusterInfoService infoService, Client client) {
+    public DiskThresholdDecider(Settings settings, ClusterSettings clusterSettings, ClusterInfoService infoService, Client client) {
         super(settings);
-        String lowWatermark = settings.get(CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK, "85%");
-        String highWatermark = settings.get(CLUSTER_ROUTING_ALLOCATION_HIGH_DISK_WATERMARK, "90%");
-
-        if (!validWatermarkSetting(lowWatermark, CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK)) {
-            throw new ElasticsearchParseException("unable to parse low watermark [{}]", lowWatermark);
-        }
-        if (!validWatermarkSetting(highWatermark, CLUSTER_ROUTING_ALLOCATION_HIGH_DISK_WATERMARK)) {
-            throw new ElasticsearchParseException("unable to parse high watermark [{}]", highWatermark);
-        }
-        // Watermark is expressed in terms of used data, but we need "free" data watermark
-        this.freeDiskThresholdLow = 100.0 - thresholdPercentageFromWatermark(lowWatermark);
-        this.freeDiskThresholdHigh = 100.0 - thresholdPercentageFromWatermark(highWatermark);
-
-        this.freeBytesThresholdLow = thresholdBytesFromWatermark(lowWatermark, CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK);
-        this.freeBytesThresholdHigh = thresholdBytesFromWatermark(highWatermark, CLUSTER_ROUTING_ALLOCATION_HIGH_DISK_WATERMARK);
-        this.includeRelocations = settings.getAsBoolean(CLUSTER_ROUTING_ALLOCATION_INCLUDE_RELOCATIONS, true);
-        this.rerouteInterval = settings.getAsTime(CLUSTER_ROUTING_ALLOCATION_REROUTE_INTERVAL, TimeValue.timeValueSeconds(60));
-
-        this.enabled = settings.getAsBoolean(CLUSTER_ROUTING_ALLOCATION_DISK_THRESHOLD_ENABLED, true);
-        nodeSettingsService.addListener(new ApplySettings());
+        final String lowWatermark = CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK_SETTING.get(settings);
+        final String highWatermark = CLUSTER_ROUTING_ALLOCATION_HIGH_DISK_WATERMARK_SETTING.get(settings);
+        setHighWatermark(highWatermark);
+        setLowWatermark(lowWatermark);
+        this.includeRelocations = CLUSTER_ROUTING_ALLOCATION_INCLUDE_RELOCATIONS_SETTING.get(settings);
+        this.rerouteInterval = CLUSTER_ROUTING_ALLOCATION_REROUTE_INTERVAL_SETTING.get(settings);
+        this.enabled = CLUSTER_ROUTING_ALLOCATION_DISK_THRESHOLD_ENABLED_SETTING.get(settings);
+        clusterSettings.addSettingsUpdateConsumer(CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK_SETTING, this::setLowWatermark);
+        clusterSettings.addSettingsUpdateConsumer(CLUSTER_ROUTING_ALLOCATION_HIGH_DISK_WATERMARK_SETTING, this::setHighWatermark);
+        clusterSettings.addSettingsUpdateConsumer(CLUSTER_ROUTING_ALLOCATION_INCLUDE_RELOCATIONS_SETTING, this::setIncludeRelocations);
+        clusterSettings.addSettingsUpdateConsumer(CLUSTER_ROUTING_ALLOCATION_REROUTE_INTERVAL_SETTING, this::setRerouteInterval);
+        clusterSettings.addSettingsUpdateConsumer(CLUSTER_ROUTING_ALLOCATION_DISK_THRESHOLD_ENABLED_SETTING, this::setEnabled);
         infoService.addListener(new DiskListener(client));
     }
 
-    // For Testing
-    ApplySettings newApplySettings() {
-        return new ApplySettings();
+    private void setIncludeRelocations(boolean includeRelocations) {
+        this.includeRelocations = includeRelocations;
+    }
+
+    private void setRerouteInterval(TimeValue rerouteInterval) {
+        this.rerouteInterval = rerouteInterval;
+    }
+
+    private void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
+    private void setLowWatermark(String lowWatermark) {
+        // Watermark is expressed in terms of used data, but we need "free" data watermark
+        this.freeDiskThresholdLow = 100.0 - thresholdPercentageFromWatermark(lowWatermark);
+        this.freeBytesThresholdLow = thresholdBytesFromWatermark(lowWatermark, CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK_SETTING.getKey());
+    }
+
+    private void setHighWatermark(String highWatermark) {
+        // Watermark is expressed in terms of used data, but we need "free" data watermark
+        this.freeDiskThresholdHigh = 100.0 - thresholdPercentageFromWatermark(highWatermark);
+        this.freeBytesThresholdHigh = thresholdBytesFromWatermark(highWatermark, CLUSTER_ROUTING_ALLOCATION_LOW_DISK_WATERMARK_SETTING.getKey());
     }
 
     // For Testing
@@ -336,7 +310,7 @@ public class DiskThresholdDecider extends AllocationDecider {
     @Override
     public Decision canAllocate(ShardRouting shardRouting, RoutingNode node, RoutingAllocation allocation) {
         ClusterInfo clusterInfo = allocation.clusterInfo();
-        Map<String, DiskUsage> usages = clusterInfo.getNodeMostAvailableDiskUsages();
+        ImmutableOpenMap<String, DiskUsage> usages = clusterInfo.getNodeMostAvailableDiskUsages();
         final Decision decision = earlyTerminate(allocation, usages);
         if (decision != null) {
             return decision;
@@ -356,7 +330,8 @@ public class DiskThresholdDecider extends AllocationDecider {
         }
 
         // a flag for whether the primary shard has been previously allocated
-        boolean primaryHasBeenAllocated = shardRouting.primary() && shardRouting.allocatedPostIndexCreate();
+        IndexMetaData indexMetaData = allocation.metaData().index(shardRouting.getIndex());
+        boolean primaryHasBeenAllocated = shardRouting.primary() && shardRouting.allocatedPostIndexCreate(indexMetaData);
 
         // checks for exact byte comparisons
         if (freeBytes < freeBytesThresholdLow.bytes()) {
@@ -451,7 +426,7 @@ public class DiskThresholdDecider extends AllocationDecider {
             throw new IllegalArgumentException("Shard [" + shardRouting + "] is not allocated on node: [" + node.nodeId() + "]");
         }
         final ClusterInfo clusterInfo = allocation.clusterInfo();
-        final Map<String, DiskUsage> usages = clusterInfo.getNodeLeastAvailableDiskUsages();
+        final ImmutableOpenMap<String, DiskUsage> usages = clusterInfo.getNodeLeastAvailableDiskUsages();
         final Decision decision = earlyTerminate(allocation, usages);
         if (decision != null) {
             return decision;
@@ -462,8 +437,8 @@ public class DiskThresholdDecider extends AllocationDecider {
         // If this node is already above the high threshold, the shard cannot remain (get it off!)
         final double freeDiskPercentage = usage.getFreeDiskAsPercentage();
         final long freeBytes = usage.getFreeBytes();
-        if (logger.isDebugEnabled()) {
-            logger.debug("node [{}] has {}% free disk ({} bytes)", node.nodeId(), freeDiskPercentage, freeBytes);
+        if (logger.isTraceEnabled()) {
+            logger.trace("node [{}] has {}% free disk ({} bytes)", node.nodeId(), freeDiskPercentage, freeBytes);
         }
         if (dataPath == null || usage.getPath().equals(dataPath) == false) {
             return allocation.decision(Decision.YES, NAME, "shard is not allocated on the most utilized disk");
@@ -488,7 +463,7 @@ public class DiskThresholdDecider extends AllocationDecider {
         return allocation.decision(Decision.YES, NAME, "enough disk for shard to remain on node, free: [%s]", new ByteSizeValue(freeBytes));
     }
 
-    private DiskUsage getDiskUsage(RoutingNode node, RoutingAllocation allocation,  Map<String, DiskUsage> usages) {
+    private DiskUsage getDiskUsage(RoutingNode node, RoutingAllocation allocation, ImmutableOpenMap<String, DiskUsage> usages) {
         ClusterInfo clusterInfo = allocation.clusterInfo();
         DiskUsage usage = usages.get(node.nodeId());
         if (usage == null) {
@@ -521,15 +496,15 @@ public class DiskThresholdDecider extends AllocationDecider {
      * @param usages Map of nodeId to DiskUsage for all known nodes
      * @return DiskUsage representing given node using the average disk usage
      */
-    public DiskUsage averageUsage(RoutingNode node, Map<String, DiskUsage> usages) {
+    public DiskUsage averageUsage(RoutingNode node, ImmutableOpenMap<String, DiskUsage> usages) {
         if (usages.size() == 0) {
             return new DiskUsage(node.nodeId(), node.node().name(), "_na_", 0, 0);
         }
         long totalBytes = 0;
         long freeBytes = 0;
-        for (DiskUsage du : usages.values()) {
-            totalBytes += du.getTotalBytes();
-            freeBytes += du.getFreeBytes();
+        for (ObjectCursor<DiskUsage> du : usages.values()) {
+            totalBytes += du.value.getTotalBytes();
+            freeBytes += du.value.getFreeBytes();
         }
         return new DiskUsage(node.nodeId(), node.node().name(), "_na_", totalBytes / usages.size(), freeBytes / usages.size());
     }
@@ -576,34 +551,35 @@ public class DiskThresholdDecider extends AllocationDecider {
 
     /**
      * Checks if a watermark string is a valid percentage or byte size value,
-     * returning true if valid, false if invalid.
+     * @return the watermark value given
      */
-    public boolean validWatermarkSetting(String watermark, String settingName) {
+    public static String validWatermarkSetting(String watermark, String settingName) {
         try {
             RatioValue.parseRatioValue(watermark);
-            return true;
         } catch (ElasticsearchParseException e) {
             try {
                 ByteSizeValue.parseBytesSizeValue(watermark, settingName);
-                return true;
             } catch (ElasticsearchParseException ex) {
-                return false;
+                ex.addSuppressed(e);
+                throw ex;
             }
         }
+        return watermark;
+
     }
 
-    private Decision earlyTerminate(RoutingAllocation allocation, final Map<String, DiskUsage> usages) {
+    private Decision earlyTerminate(RoutingAllocation allocation, ImmutableOpenMap<String, DiskUsage> usages) {
         // Always allow allocation if the decider is disabled
         if (!enabled) {
             return allocation.decision(Decision.YES, NAME, "disk threshold decider disabled");
         }
 
-        // Allow allocation regardless if only a single node is available
-        if (allocation.nodes().size() <= 1) {
+        // Allow allocation regardless if only a single data node is available
+        if (allocation.nodes().dataNodes().size() <= 1) {
             if (logger.isTraceEnabled()) {
-                logger.trace("only a single node is present, allowing allocation");
+                logger.trace("only a single data node is present, allowing allocation");
             }
-            return allocation.decision(Decision.YES, NAME, "only a single node is present");
+            return allocation.decision(Decision.YES, NAME, "only a single data node is present");
         }
 
         // Fail open there is no info available

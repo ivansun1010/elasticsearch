@@ -21,8 +21,8 @@ package org.elasticsearch.cluster.routing.allocation.command;
 
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.cluster.node.DiscoveryNode;
-import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.cluster.routing.RoutingNode;
+import org.elasticsearch.cluster.routing.ShardRouting;
 import org.elasticsearch.cluster.routing.ShardRoutingState;
 import org.elasticsearch.cluster.routing.allocation.RerouteExplanation;
 import org.elasticsearch.cluster.routing.allocation.RoutingAllocation;
@@ -37,7 +37,7 @@ import org.elasticsearch.index.shard.ShardId;
 import java.io.IOException;
 
 /**
- * A command that moves a shard from a specific node to another node.<br />
+ * A command that moves a shard from a specific node to another node.<br>
  * <b>Note:</b> The shard needs to be in the state
  * {@link ShardRoutingState#STARTED} in order to be moved.
  */

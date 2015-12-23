@@ -149,12 +149,22 @@ def start_node(version, release_dir, data_dir, repo_dir, tcp_port=DEFAULT_TRANSP
     cmd.append('-f') # version before 1.0 start in background automatically
   return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+def install_plugin(version, release_dir, plugin_name):
+  run_plugin(version, release_dir, 'install', [plugin_name])
+
+def remove_plugin(version, release_dir, plugin_name):
+  run_plugin(version, release_dir, 'remove', [plugin_name])
+
+def run_plugin(version, release_dir, plugin_cmd, args):
+  cmd = [os.path.join(release_dir, 'bin/plugin'), plugin_cmd] + args
+  subprocess.check_call(cmd)
+
 def create_client(http_port=DEFAULT_HTTP_TCP_PORT, timeout=30):
   logging.info('Waiting for node to startup')
   for _ in range(0, timeout):
     # TODO: ask Honza if there is a better way to do this?
     try:
-      client = Elasticsearch([{'host': '127.0.0.1', 'port': http_port}])
+      client = Elasticsearch([{'host': 'localhost', 'port': http_port}])
       client.cluster.health(wait_for_nodes=1)
       client.count() # can we actually search or do we get a 503? -- anyway retry
       return client
@@ -333,7 +343,7 @@ def parse_config():
                         help='Recreate all existing backwards compatibility indexes')
   parser.add_argument('--releases-dir', '-d', default='backwards', metavar='DIR',
                       help='The directory containing elasticsearch releases')
-  parser.add_argument('--output-dir', '-o', default='core/src/test/resources/org/elasticsearch/bwcompat',
+  parser.add_argument('--output-dir', '-o', default='core/src/test/resources/indices/bwc',
                       help='The directory to write the zipped index into')
   parser.add_argument('--tcp-port', default=DEFAULT_TRANSPORT_TCP_PORT, type=int,
                       help='The port to use as the minimum port for TCP communication')

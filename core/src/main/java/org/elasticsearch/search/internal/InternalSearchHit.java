@@ -19,7 +19,6 @@
 
 package org.elasticsearch.search.internal;
 
-import com.google.common.collect.ImmutableMap;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.ElasticsearchParseException;
@@ -31,7 +30,6 @@ import org.elasticsearch.common.compress.CompressorFactory;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Streamable;
-import org.elasticsearch.common.text.StringAndBytesText;
 import org.elasticsearch.common.text.Text;
 import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -52,6 +50,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import static java.util.Collections.emptyMap;
+import static java.util.Collections.singletonMap;
+import static java.util.Collections.unmodifiableMap;
 import static org.elasticsearch.common.lucene.Lucene.readExplanation;
 import static org.elasticsearch.common.lucene.Lucene.writeExplanation;
 import static org.elasticsearch.search.SearchShardTarget.readSearchShardTarget;
@@ -78,7 +79,7 @@ public class InternalSearchHit implements SearchHit {
 
     private BytesReference source;
 
-    private Map<String, SearchHitField> fields = ImmutableMap.of();
+    private Map<String, SearchHitField> fields = emptyMap();
 
     private Map<String, HighlightField> highlightFields = null;
 
@@ -102,14 +103,14 @@ public class InternalSearchHit implements SearchHit {
 
     public InternalSearchHit(int docId, String id, Text type, Map<String, SearchHitField> fields) {
         this.docId = docId;
-        this.id = new StringAndBytesText(id);
+        this.id = new Text(id);
         this.type = type;
         this.fields = fields;
     }
 
     public InternalSearchHit(int nestedTopDocId, String id, Text type, InternalNestedIdentity nestedIdentity, Map<String, SearchHitField> fields) {
         this.docId = nestedTopDocId;
-        this.id = new StringAndBytesText(id);
+        this.id = new Text(id);
         this.type = type;
         this.nestedIdentity = nestedIdentity;
         this.fields = fields;
@@ -292,15 +293,12 @@ public class InternalSearchHit implements SearchHit {
 
     @Override
     public Map<String, SearchHitField> fields() {
-        if (fields == null) {
-            return ImmutableMap.of();
-        }
-        return fields;
+        return fields == null ? emptyMap() : fields;
     }
 
     // returns the fields without handling null cases
     public Map<String, SearchHitField> fieldsOrNull() {
-        return this.fields;
+        return fields;
     }
 
     @Override
@@ -318,10 +316,7 @@ public class InternalSearchHit implements SearchHit {
 
     @Override
     public Map<String, HighlightField> highlightFields() {
-        if (highlightFields == null) {
-            return ImmutableMap.of();
-        }
-        return this.highlightFields;
+        return highlightFields == null ? emptyMap() : highlightFields;
     }
 
     @Override
@@ -343,7 +338,7 @@ public class InternalSearchHit implements SearchHit {
         if (sortValues != null) {
             for (int i = 0; i < sortValues.length; i++) {
                 if (sortValues[i] instanceof BytesRef) {
-                    sortValuesCopy[i] = new StringAndBytesText(new BytesArray((BytesRef) sortValues[i]));
+                    sortValuesCopy[i] = new Text(new BytesArray((BytesRef) sortValues[i]));
                 }
             }
         }
@@ -563,7 +558,7 @@ public class InternalSearchHit implements SearchHit {
         score = in.readFloat();
         id = in.readText();
         type = in.readText();
-        nestedIdentity = in.readOptionalStreamable(new InternalNestedIdentity());
+        nestedIdentity = in.readOptionalStreamable(InternalNestedIdentity::new);
         version = in.readLong();
         source = in.readBytesReference();
         if (source.length() == 0) {
@@ -574,69 +569,32 @@ public class InternalSearchHit implements SearchHit {
         }
         int size = in.readVInt();
         if (size == 0) {
-            fields = ImmutableMap.of();
+            fields = emptyMap();
         } else if (size == 1) {
             SearchHitField hitField = readSearchHitField(in);
-            fields = ImmutableMap.of(hitField.name(), hitField);
-        } else if (size == 2) {
-            SearchHitField hitField1 = readSearchHitField(in);
-            SearchHitField hitField2 = readSearchHitField(in);
-            fields = ImmutableMap.of(hitField1.name(), hitField1, hitField2.name(), hitField2);
-        } else if (size == 3) {
-            SearchHitField hitField1 = readSearchHitField(in);
-            SearchHitField hitField2 = readSearchHitField(in);
-            SearchHitField hitField3 = readSearchHitField(in);
-            fields = ImmutableMap.of(hitField1.name(), hitField1, hitField2.name(), hitField2, hitField3.name(), hitField3);
-        } else if (size == 4) {
-            SearchHitField hitField1 = readSearchHitField(in);
-            SearchHitField hitField2 = readSearchHitField(in);
-            SearchHitField hitField3 = readSearchHitField(in);
-            SearchHitField hitField4 = readSearchHitField(in);
-            fields = ImmutableMap.of(hitField1.name(), hitField1, hitField2.name(), hitField2, hitField3.name(), hitField3, hitField4.name(), hitField4);
-        } else if (size == 5) {
-            SearchHitField hitField1 = readSearchHitField(in);
-            SearchHitField hitField2 = readSearchHitField(in);
-            SearchHitField hitField3 = readSearchHitField(in);
-            SearchHitField hitField4 = readSearchHitField(in);
-            SearchHitField hitField5 = readSearchHitField(in);
-            fields = ImmutableMap.of(hitField1.name(), hitField1, hitField2.name(), hitField2, hitField3.name(), hitField3, hitField4.name(), hitField4, hitField5.name(), hitField5);
+            fields = singletonMap(hitField.name(), hitField);
         } else {
-            ImmutableMap.Builder<String, SearchHitField> builder = ImmutableMap.builder();
+            Map<String, SearchHitField> fields = new HashMap<>();
             for (int i = 0; i < size; i++) {
                 SearchHitField hitField = readSearchHitField(in);
-                builder.put(hitField.name(), hitField);
+                fields.put(hitField.name(), hitField);
             }
-            fields = builder.build();
+            this.fields = unmodifiableMap(fields);
         }
 
         size = in.readVInt();
         if (size == 0) {
-            highlightFields = ImmutableMap.of();
+            highlightFields = emptyMap();
         } else if (size == 1) {
             HighlightField field = readHighlightField(in);
-            highlightFields = ImmutableMap.of(field.name(), field);
-        } else if (size == 2) {
-            HighlightField field1 = readHighlightField(in);
-            HighlightField field2 = readHighlightField(in);
-            highlightFields = ImmutableMap.of(field1.name(), field1, field2.name(), field2);
-        } else if (size == 3) {
-            HighlightField field1 = readHighlightField(in);
-            HighlightField field2 = readHighlightField(in);
-            HighlightField field3 = readHighlightField(in);
-            highlightFields = ImmutableMap.of(field1.name(), field1, field2.name(), field2, field3.name(), field3);
-        } else if (size == 4) {
-            HighlightField field1 = readHighlightField(in);
-            HighlightField field2 = readHighlightField(in);
-            HighlightField field3 = readHighlightField(in);
-            HighlightField field4 = readHighlightField(in);
-            highlightFields = ImmutableMap.of(field1.name(), field1, field2.name(), field2, field3.name(), field3, field4.name(), field4);
+            highlightFields = singletonMap(field.name(), field);
         } else {
-            ImmutableMap.Builder<String, HighlightField> builder = ImmutableMap.builder();
+            Map<String, HighlightField> highlightFields = new HashMap<>();
             for (int i = 0; i < size; i++) {
                 HighlightField field = readHighlightField(in);
-                builder.put(field.name(), field);
+                highlightFields.put(field.name(), field);
             }
-            highlightFields = builder.build();
+            this.highlightFields = unmodifiableMap(highlightFields);
         }
 
         size = in.readVInt();
@@ -824,7 +782,7 @@ public class InternalSearchHit implements SearchHit {
         private InternalNestedIdentity child;
 
         public InternalNestedIdentity(String field, int offset, InternalNestedIdentity child) {
-            this.field = new StringAndBytesText(field);
+            this.field = new Text(field);
             this.offset = offset;
             this.child = child;
         }
@@ -851,7 +809,7 @@ public class InternalSearchHit implements SearchHit {
         public void readFrom(StreamInput in) throws IOException {
             field = in.readOptionalText();
             offset = in.readInt();
-            child = in.readOptionalStreamable(new InternalNestedIdentity());
+            child = in.readOptionalStreamable(InternalNestedIdentity::new);
         }
 
         @Override

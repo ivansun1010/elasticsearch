@@ -19,39 +19,22 @@
 
 package org.elasticsearch.plugins;
 
-import com.google.common.base.Function;
 import org.elasticsearch.Version;
-import org.elasticsearch.action.admin.cluster.node.info.PluginsInfo;
+import org.elasticsearch.action.admin.cluster.node.info.PluginsAndModules;
 import org.elasticsearch.test.ESTestCase;
 
-import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Properties;
+import java.util.stream.Collectors;
 
-import static org.elasticsearch.common.util.CollectionUtils.eagerTransform;
 import static org.hamcrest.Matchers.contains;
 
 public class PluginInfoTests extends ESTestCase {
 
-    static void writeProperties(Path pluginDir, String... stringProps) throws IOException {
-        assert stringProps.length % 2 == 0;
-        Files.createDirectories(pluginDir);
-        Path propertiesFile = pluginDir.resolve(PluginInfo.ES_PLUGIN_PROPERTIES);
-        Properties properties =  new Properties();
-        for (int i = 0; i < stringProps.length; i += 2) {
-            properties.put(stringProps[i], stringProps[i + 1]);
-        }
-        try (OutputStream out = Files.newOutputStream(propertiesFile)) {
-            properties.store(out, "");
-        }
-    }
-
     public void testReadFromProperties() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
-        writeProperties(pluginDir,
+        PluginTestUtil.writeProperties(pluginDir,
             "description", "fake desc",
             "name", "my_plugin",
             "version", "1.0",
@@ -72,7 +55,7 @@ public class PluginInfoTests extends ESTestCase {
 
     public void testReadFromPropertiesNameMissing() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
-        writeProperties(pluginDir);
+        PluginTestUtil.writeProperties(pluginDir);
         try {
             PluginInfo.readFromProperties(pluginDir);
             fail("expected missing name exception");
@@ -80,7 +63,7 @@ public class PluginInfoTests extends ESTestCase {
             assertTrue(e.getMessage().contains("Property [name] is missing in"));
         }
 
-        writeProperties(pluginDir, "name", "");
+        PluginTestUtil.writeProperties(pluginDir, "name", "");
         try {
             PluginInfo.readFromProperties(pluginDir);
             fail("expected missing name exception");
@@ -91,7 +74,7 @@ public class PluginInfoTests extends ESTestCase {
 
     public void testReadFromPropertiesDescriptionMissing() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
-        writeProperties(pluginDir, "name", "fake-plugin");
+        PluginTestUtil.writeProperties(pluginDir, "name", "fake-plugin");
         try {
             PluginInfo.readFromProperties(pluginDir);
             fail("expected missing description exception");
@@ -102,7 +85,7 @@ public class PluginInfoTests extends ESTestCase {
 
     public void testReadFromPropertiesVersionMissing() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
-        writeProperties(pluginDir, "description", "fake desc", "name", "fake-plugin");
+        PluginTestUtil.writeProperties(pluginDir, "description", "fake desc", "name", "fake-plugin");
         try {
             PluginInfo.readFromProperties(pluginDir);
             fail("expected missing version exception");
@@ -113,7 +96,7 @@ public class PluginInfoTests extends ESTestCase {
 
     public void testReadFromPropertiesJvmAndSiteMissing() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
-        writeProperties(pluginDir,
+        PluginTestUtil.writeProperties(pluginDir,
             "description", "fake desc",
             "version", "1.0",
             "name", "my_plugin");
@@ -127,7 +110,7 @@ public class PluginInfoTests extends ESTestCase {
 
     public void testReadFromPropertiesElasticsearchVersionMissing() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
-        writeProperties(pluginDir,
+        PluginTestUtil.writeProperties(pluginDir,
             "description", "fake desc",
             "name", "my_plugin",
             "version", "1.0",
@@ -142,7 +125,7 @@ public class PluginInfoTests extends ESTestCase {
 
     public void testReadFromPropertiesJavaVersionMissing() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
-        writeProperties(pluginDir,
+        PluginTestUtil.writeProperties(pluginDir,
             "description", "fake desc",
             "name", "my_plugin",
             "elasticsearch.version", Version.CURRENT.toString(),
@@ -159,7 +142,7 @@ public class PluginInfoTests extends ESTestCase {
     public void testReadFromPropertiesJavaVersionIncompatible() throws Exception {
         String pluginName = "fake-plugin";
         Path pluginDir = createTempDir().resolve(pluginName);
-        writeProperties(pluginDir,
+        PluginTestUtil.writeProperties(pluginDir,
             "description", "fake desc",
             "name", pluginName,
             "elasticsearch.version", Version.CURRENT.toString(),
@@ -178,7 +161,7 @@ public class PluginInfoTests extends ESTestCase {
     public void testReadFromPropertiesBadJavaVersionFormat() throws Exception {
         String pluginName = "fake-plugin";
         Path pluginDir = createTempDir().resolve(pluginName);
-        writeProperties(pluginDir,
+        PluginTestUtil.writeProperties(pluginDir,
                 "description", "fake desc",
                 "name", pluginName,
                 "elasticsearch.version", Version.CURRENT.toString(),
@@ -196,7 +179,7 @@ public class PluginInfoTests extends ESTestCase {
 
     public void testReadFromPropertiesBogusElasticsearchVersion() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
-        writeProperties(pluginDir,
+        PluginTestUtil.writeProperties(pluginDir,
             "description", "fake desc",
             "version", "1.0",
             "jvm", "true",
@@ -206,13 +189,13 @@ public class PluginInfoTests extends ESTestCase {
             PluginInfo.readFromProperties(pluginDir);
             fail("expected bogus elasticsearch version exception");
         } catch (IllegalArgumentException e) {
-            assertTrue(e.getMessage().contains("version needs to contain major, minor and revision"));
+            assertTrue(e.getMessage().contains("version needs to contain major, minor, and revision"));
         }
     }
 
     public void testReadFromPropertiesOldElasticsearchVersion() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
-        writeProperties(pluginDir,
+        PluginTestUtil.writeProperties(pluginDir,
             "description", "fake desc",
             "name", "my_plugin",
             "version", "1.0",
@@ -222,13 +205,13 @@ public class PluginInfoTests extends ESTestCase {
             PluginInfo.readFromProperties(pluginDir);
             fail("expected old elasticsearch version exception");
         } catch (IllegalArgumentException e) {
-            assertTrue(e.getMessage().contains("Elasticsearch version [1.7.0] is too old"));
+            assertTrue(e.getMessage().contains("Was designed for version [1.7.0]"));
         }
     }
 
     public void testReadFromPropertiesJvmMissingClassname() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
-        writeProperties(pluginDir,
+        PluginTestUtil.writeProperties(pluginDir,
             "description", "fake desc",
             "name", "my_plugin",
             "version", "1.0",
@@ -246,7 +229,7 @@ public class PluginInfoTests extends ESTestCase {
     public void testReadFromPropertiesSitePlugin() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
         Files.createDirectories(pluginDir.resolve("_site"));
-        writeProperties(pluginDir,
+        PluginTestUtil.writeProperties(pluginDir,
             "description", "fake desc",
             "name", "my_plugin",
             "version", "1.0",
@@ -259,11 +242,11 @@ public class PluginInfoTests extends ESTestCase {
 
     public void testReadFromPropertiesSitePluginWithoutSite() throws Exception {
         Path pluginDir = createTempDir().resolve("fake-plugin");
-        writeProperties(pluginDir,
-            "description", "fake desc",
-            "name", "my_plugin",
-            "version", "1.0",
-            "site", "true");
+        PluginTestUtil.writeProperties(pluginDir,
+                "description", "fake desc",
+                "name", "my_plugin",
+                "version", "1.0",
+                "site", "true");
         try {
             PluginInfo.readFromProperties(pluginDir);
             fail("didn't get expected exception");
@@ -273,20 +256,15 @@ public class PluginInfoTests extends ESTestCase {
     }
 
     public void testPluginListSorted() {
-        PluginsInfo pluginsInfo = new PluginsInfo(5);
-        pluginsInfo.add(new PluginInfo("c", "foo", true, "dummy", true, "dummyclass", true));
-        pluginsInfo.add(new PluginInfo("b", "foo", true, "dummy", true, "dummyclass", true));
-        pluginsInfo.add(new PluginInfo("e", "foo", true, "dummy", true, "dummyclass", true));
-        pluginsInfo.add(new PluginInfo("a", "foo", true, "dummy", true, "dummyclass", true));
-        pluginsInfo.add(new PluginInfo("d", "foo", true, "dummy", true, "dummyclass", true));
+        PluginsAndModules pluginsInfo = new PluginsAndModules();
+        pluginsInfo.addPlugin(new PluginInfo("c", "foo", true, "dummy", true, "dummyclass", true));
+        pluginsInfo.addPlugin(new PluginInfo("b", "foo", true, "dummy", true, "dummyclass", true));
+        pluginsInfo.addPlugin(new PluginInfo("e", "foo", true, "dummy", true, "dummyclass", true));
+        pluginsInfo.addPlugin(new PluginInfo("a", "foo", true, "dummy", true, "dummyclass", true));
+        pluginsInfo.addPlugin(new PluginInfo("d", "foo", true, "dummy", true, "dummyclass", true));
 
-        final List<PluginInfo> infos = pluginsInfo.getInfos();
-        List<String> names = eagerTransform(infos, new Function<PluginInfo, String>() {
-            @Override
-            public String apply(PluginInfo input) {
-                return input.getName();
-            }
-        });
+        final List<PluginInfo> infos = pluginsInfo.getPluginInfos();
+        List<String> names = infos.stream().map((input) -> input.getName()).collect(Collectors.toList());
         assertThat(names, contains("a", "b", "c", "d", "e"));
     }
 }

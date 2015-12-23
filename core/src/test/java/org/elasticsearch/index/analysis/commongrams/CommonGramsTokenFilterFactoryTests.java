@@ -22,25 +22,19 @@ package org.elasticsearch.index.analysis.commongrams;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.core.WhitespaceTokenizer;
-import org.elasticsearch.common.io.FileSystemUtils;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.analysis.AnalysisService;
 import org.elasticsearch.index.analysis.AnalysisTestsHelper;
 import org.elasticsearch.index.analysis.TokenFilterFactory;
 import org.elasticsearch.test.ESTokenStreamTestCase;
 import org.junit.Assert;
-import org.junit.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
-import static org.hamcrest.Matchers.instanceOf;
 public class CommonGramsTokenFilterFactoryTests extends ESTokenStreamTestCase {
-
-    @Test
     public void testDefault() throws IOException {
         Settings settings = Settings.settingsBuilder()
                                 .put("index.analysis.filter.common_grams_default.type", "common_grams")
@@ -50,11 +44,12 @@ public class CommonGramsTokenFilterFactoryTests extends ESTokenStreamTestCase {
         try {
             AnalysisTestsHelper.createAnalysisServiceFromSettings(settings);
             Assert.fail("[common_words] or [common_words_path] is set");
-        } catch (Exception e) {
-            assertThat(e.getCause(), instanceOf(IllegalArgumentException.class));
+        } catch (IllegalArgumentException e) {
+        } catch (IOException e) {
+            fail("expected IAE");
         }
     }
-    @Test
+
     public void testWithoutCommonWordsMatch() throws IOException {
         {
             Settings settings = Settings.settingsBuilder().put("index.analysis.filter.common_grams_default.type", "common_grams")
@@ -91,7 +86,6 @@ public class CommonGramsTokenFilterFactoryTests extends ESTokenStreamTestCase {
         }
     }
 
-    @Test
     public void testSettings() throws IOException {
         {
             Settings settings = Settings.settingsBuilder().put("index.analysis.filter.common_grams_1.type", "common_grams")
@@ -136,7 +130,6 @@ public class CommonGramsTokenFilterFactoryTests extends ESTokenStreamTestCase {
         }
     }
 
-    @Test
     public void testCommonGramsAnalysis() throws IOException {
         String json = "/org/elasticsearch/index/analysis/commongrams/commongrams.json";
         Settings settings = Settings.settingsBuilder()
@@ -159,7 +152,6 @@ public class CommonGramsTokenFilterFactoryTests extends ESTokenStreamTestCase {
         }
     }
 
-    @Test
     public void testQueryModeSettings() throws IOException {
         {
             Settings settings = Settings.settingsBuilder().put("index.analysis.filter.common_grams_1.type", "common_grams")
@@ -221,7 +213,6 @@ public class CommonGramsTokenFilterFactoryTests extends ESTokenStreamTestCase {
         }
     }
 
-    @Test
     public void testQueryModeCommonGramsAnalysis() throws IOException {
         String json = "/org/elasticsearch/index/analysis/commongrams/commongrams_query_mode.json";
         Settings settings = Settings.settingsBuilder()

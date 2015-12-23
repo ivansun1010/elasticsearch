@@ -39,7 +39,13 @@ import org.elasticsearch.common.logging.support.LoggerMessageFormat;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.threadpool.ThreadPool;
-import org.elasticsearch.transport.*;
+import org.elasticsearch.transport.BaseTransportResponseHandler;
+import org.elasticsearch.transport.TransportChannel;
+import org.elasticsearch.transport.TransportException;
+import org.elasticsearch.transport.TransportRequestHandler;
+import org.elasticsearch.transport.TransportService;
+
+import java.util.function.Supplier;
 
 import static org.elasticsearch.action.support.TransportActions.isShardNotAvailableException;
 
@@ -59,7 +65,7 @@ public abstract class TransportSingleShardAction<Request extends SingleShardRequ
 
     protected TransportSingleShardAction(Settings settings, String actionName, ThreadPool threadPool, ClusterService clusterService,
                                          TransportService transportService, ActionFilters actionFilters, IndexNameExpressionResolver indexNameExpressionResolver,
-                                         Class<Request> request, String executor) {
+                                         Supplier<Request> request, String executor) {
         super(settings, actionName, threadPool, actionFilters, indexNameExpressionResolver);
         this.clusterService = clusterService;
         this.transportService = transportService;
@@ -171,7 +177,7 @@ public abstract class TransportSingleShardAction<Request extends SingleShardRequ
 
                     @Override
                     public void handleException(TransportException exp) {
-                        perform(exp);
+                        listener.onFailure(exp);
                     }
                 });
             } else {
@@ -210,6 +216,14 @@ public abstract class TransportSingleShardAction<Request extends SingleShardRequ
                 onFailure(shardRouting, new NoShardAvailableActionException(shardRouting.shardId()));
             } else {
                 internalRequest.request().internalShardId = shardRouting.shardId();
+                if (logger.isTraceEnabled()) {
+                    logger.trace(
+                            "sending request [{}] to shard [{}] on node [{}]",
+                            internalRequest.request(),
+                            internalRequest.request().internalShardId,
+                            node
+                    );
+                }
                 transportService.sendRequest(node, transportShardAction, internalRequest.request(), new BaseTransportResponseHandler<Response>() {
 
                     @Override

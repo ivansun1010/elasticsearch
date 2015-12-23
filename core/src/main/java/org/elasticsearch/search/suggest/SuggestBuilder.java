@@ -20,9 +20,6 @@ package org.elasticsearch.search.suggest;
 
 import org.elasticsearch.action.support.ToXContentToBytes;
 import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.search.suggest.context.CategoryContextMapping;
-import org.elasticsearch.search.suggest.context.ContextMapping.ContextQuery;
-import org.elasticsearch.search.suggest.context.GeolocationContextMapping;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -31,7 +28,7 @@ import java.util.List;
 /**
  * Defines how to perform suggesting. This builders allows a number of global options to be specified and
  * an arbitrary number of {@link org.elasticsearch.search.suggest.term.TermSuggestionBuilder} instances.
- * <p/>
+ * <p>
  * Suggesting works by suggesting terms that appear in the suggest text that are similar compared to the terms in
  * provided text. These spelling suggestions are based on several options described in this class.
  */
@@ -53,7 +50,7 @@ public class SuggestBuilder extends ToXContentToBytes {
     /**
      * Sets the text to provide suggestions for. The suggest text is a required option that needs
      * to be set either via this setter or via the {@link org.elasticsearch.search.suggest.SuggestBuilder.SuggestionBuilder#setText(String)} method.
-     * <p/>
+     * <p>
      * The suggest text gets analyzed by the suggest analyzer or the suggest field search analyzer.
      * For each analyzed token, suggested terms are suggested if possible.
      */
@@ -101,90 +98,18 @@ public class SuggestBuilder extends ToXContentToBytes {
         private String name;
         private String suggester;
         private String text;
+        private String prefix;
+        private String regex;
         private String field;
         private String analyzer;
         private Integer size;
         private Integer shardSize;
-        
-        private List<ContextQuery> contextQueries = new ArrayList<>();
 
         public SuggestionBuilder(String name, String suggester) {
             this.name = name;
             this.suggester = suggester;
         }
 
-        @SuppressWarnings("unchecked")
-        private T addContextQuery(ContextQuery ctx) {
-            this.contextQueries.add(ctx);
-            return (T) this;
-        }
-
-        /**
-         * Setup a Geolocation for suggestions. See {@link GeolocationContextMapping}.
-         * @param lat Latitude of the location
-         * @param lon Longitude of the Location
-         * @return this
-         */
-        public T addGeoLocation(String name, double lat, double lon, int ... precisions) {
-            return addContextQuery(GeolocationContextMapping.query(name, lat, lon, precisions));
-        }
-
-        /**
-         * Setup a Geolocation for suggestions. See {@link GeolocationContextMapping}.
-         * @param lat Latitude of the location
-         * @param lon Longitude of the Location
-         * @param precisions precisions as string var-args
-         * @return this
-         */
-        public T addGeoLocationWithPrecision(String name, double lat, double lon, String ... precisions) {
-            return addContextQuery(GeolocationContextMapping.query(name, lat, lon, precisions));
-        }
-
-        /**
-         * Setup a Geolocation for suggestions. See {@link GeolocationContextMapping}.
-         * @param geohash Geohash of the location
-         * @return this
-         */
-        public T addGeoLocation(String name, String geohash) {
-            return addContextQuery(GeolocationContextMapping.query(name, geohash));
-        }
-        
-        /**
-         * Setup a Category for suggestions. See {@link CategoryContextMapping}.
-         * @param categories name of the category
-         * @return this
-         */
-        public T addCategory(String name, CharSequence...categories) {
-            return addContextQuery(CategoryContextMapping.query(name, categories));
-        }
-        
-        /**
-         * Setup a Category for suggestions. See {@link CategoryContextMapping}.
-         * @param categories name of the category
-         * @return this
-         */
-        public T addCategory(String name, Iterable<? extends CharSequence> categories) {
-            return addContextQuery(CategoryContextMapping.query(name, categories));
-        }
-        
-        /**
-         * Setup a Context Field for suggestions. See {@link CategoryContextMapping}.
-         * @param fieldvalues name of the category
-         * @return this
-         */
-        public T addContextField(String name, CharSequence...fieldvalues) {
-            return addContextQuery(CategoryContextMapping.query(name, fieldvalues));
-        }
-        
-        /**
-         * Setup a Context Field for suggestions. See {@link CategoryContextMapping}.
-         * @param fieldvalues name of the category
-         * @return this
-         */
-        public T addContextField(String name, Iterable<? extends CharSequence> fieldvalues) {
-            return addContextQuery(CategoryContextMapping.query(name, fieldvalues));
-        }
-        
         /**
          * Same as in {@link SuggestBuilder#setText(String)}, but in the suggestion scope.
          */
@@ -194,11 +119,25 @@ public class SuggestBuilder extends ToXContentToBytes {
             return (T) this;
         }
 
+        protected void setPrefix(String prefix) {
+            this.prefix = prefix;
+        }
+
+        protected void setRegex(String regex) {
+            this.regex = regex;
+        }
+
         @Override
         public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
             builder.startObject(name);
             if (text != null) {
                 builder.field("text", text);
+            }
+            if (prefix != null) {
+                builder.field("prefix", prefix);
+            }
+            if (regex != null) {
+                builder.field("regex", regex);
             }
             builder.startObject(suggester);
             if (analyzer != null) {
@@ -214,13 +153,6 @@ public class SuggestBuilder extends ToXContentToBytes {
                 builder.field("shard_size", shardSize);
             }
 
-            if (!contextQueries.isEmpty()) {
-                builder.startObject("context");
-                for (ContextQuery query : contextQueries) {
-                    query.toXContent(builder, params);
-                }
-                builder.endObject();
-            }
             builder = innerToXContent(builder, params);
             builder.endObject();
             builder.endObject();
@@ -268,7 +200,7 @@ public class SuggestBuilder extends ToXContentToBytes {
          * individual shard. During the reduce phase the only the top N suggestions
          * are returned based on the <code>size</code> option. Defaults to the
          * <code>size</code> option.
-         * <p/>
+         * <p>
          * Setting this to a value higher than the `size` can be useful in order to
          * get a more accurate document frequency for suggested terms. Due to the
          * fact that terms are partitioned amongst shards, the shard level document

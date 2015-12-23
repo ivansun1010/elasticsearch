@@ -20,23 +20,11 @@ package org.elasticsearch.index.mapper.core;
 
 import org.elasticsearch.index.mapper.FieldTypeTestCase;
 import org.elasticsearch.index.mapper.MappedFieldType;
-import org.junit.Before;
 
 public class BinaryFieldTypeTests extends FieldTypeTestCase {
 
     @Override
     protected MappedFieldType createDefaultFieldType() {
         return new BinaryFieldMapper.BinaryFieldType();
-    }
-
-    @Before
-    public void setupProperties() {
-        addModifier(new Modifier("try_uncompressing", false, true) {
-            @Override
-            public void modify(MappedFieldType ft) {
-                BinaryFieldMapper.BinaryFieldType bft = (BinaryFieldMapper.BinaryFieldType)ft;
-                bft.setTryUncompressing(!bft.tryUncompressing());
-            }
-        });
     }
 }

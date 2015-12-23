@@ -19,7 +19,11 @@
 
 package org.elasticsearch.index.engine;
 
-import org.apache.lucene.index.*;
+import org.apache.lucene.index.ConcurrentMergeScheduler;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.MergePolicy;
+import org.apache.lucene.index.MergeScheduler;
+import org.apache.lucene.index.OneMergeHelper;
 import org.elasticsearch.common.logging.ESLogger;
 import org.elasticsearch.common.logging.Loggers;
 import org.elasticsearch.common.metrics.CounterMetric;
@@ -29,6 +33,7 @@ import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.util.concurrent.ConcurrentCollections;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
+import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.merge.MergeStats;
 import org.elasticsearch.index.merge.OnGoingMerge;
 import org.elasticsearch.index.shard.MergeSchedulerConfig;
@@ -62,11 +67,11 @@ class ElasticsearchConcurrentMergeScheduler extends ConcurrentMergeScheduler {
     private final Set<OnGoingMerge> readOnlyOnGoingMerges = Collections.unmodifiableSet(onGoingMerges);
     private final MergeSchedulerConfig config;
 
-    public ElasticsearchConcurrentMergeScheduler(ShardId shardId, Settings indexSettings, MergeSchedulerConfig config) {
+    public ElasticsearchConcurrentMergeScheduler(ShardId shardId, IndexSettings indexSettings, MergeSchedulerConfig config) {
         this.config = config;
         this.shardId = shardId;
-        this.indexSettings = indexSettings;
-        this.logger = Loggers.getLogger(getClass(), indexSettings, shardId);
+        this.indexSettings = indexSettings.getSettings();
+        this.logger = Loggers.getLogger(getClass(), this.indexSettings, shardId);
         refreshConfig();
     }
 
@@ -143,7 +148,7 @@ class ElasticsearchConcurrentMergeScheduler extends ConcurrentMergeScheduler {
 
     @Override
     public MergeScheduler clone() {
-        // Lucene IW makes a clone internally but since we hold on to this instance 
+        // Lucene IW makes a clone internally but since we hold on to this instance
         // the clone will just be the identity.
         return this;
     }

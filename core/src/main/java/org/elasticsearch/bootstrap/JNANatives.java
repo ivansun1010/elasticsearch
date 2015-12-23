@@ -26,6 +26,8 @@ import org.elasticsearch.common.logging.ESLogger;
 import org.elasticsearch.common.logging.Loggers;
 import org.elasticsearch.monitor.jvm.JvmInfo;
 
+import java.nio.file.Path;
+
 import static org.elasticsearch.bootstrap.JNAKernel32Library.SizeT;
 
 /**
@@ -41,6 +43,11 @@ class JNANatives {
 
     // Set to true, in case native mlockall call was successful
     static boolean LOCAL_MLOCKALL = false;
+    // Set to true, in case native seccomp call was successful
+    static boolean LOCAL_SECCOMP = false;
+    // Set to true, in case policy can be applied to all threads of the process (even existing ones)
+    // otherwise they are only inherited for new threads (ES app threads)
+    static boolean LOCAL_SECCOMP_ALL = false;
 
     static void tryMlockall() {
         int errno = Integer.MIN_VALUE;
@@ -48,23 +55,23 @@ class JNANatives {
         boolean rlimitSuccess = false;
         long softLimit = 0;
         long hardLimit = 0;
-        
+
         try {
             int result = JNACLibrary.mlockall(JNACLibrary.MCL_CURRENT);
             if (result == 0) {
                 LOCAL_MLOCKALL = true;
                 return;
             }
-            
+
             errno = Native.getLastError();
             errMsg = JNACLibrary.strerror(errno);
             if (Constants.LINUX || Constants.MAC_OS_X) {
-                // we only know RLIMIT_MEMLOCK for these two at the moment. 
+                // we only know RLIMIT_MEMLOCK for these two at the moment.
                 JNACLibrary.Rlimit rlimit = new JNACLibrary.Rlimit();
                 if (JNACLibrary.getrlimit(JNACLibrary.RLIMIT_MEMLOCK, rlimit) == 0) {
                     rlimitSuccess = true;
-                    softLimit = rlimit.rlim_cur;
-                    hardLimit = rlimit.rlim_max;
+                    softLimit = rlimit.rlim_cur.longValue();
+                    hardLimit = rlimit.rlim_max.longValue();
                 } else {
                     logger.warn("Unable to retrieve resource limits: " + JNACLibrary.strerror(Native.getLastError()));
                 }
@@ -95,7 +102,7 @@ class JNANatives {
             }
         }
     }
-    
+
     static String rlimitToString(long value) {
         assert Constants.LINUX || Constants.MAC_OS_X;
         if (value == JNACLibrary.RLIM_INFINITY) {
@@ -170,4 +177,20 @@ class JNANatives {
         }
     }
 
+    static void trySeccomp(Path tmpFile) {
+        try {
+            int ret = Seccomp.init(tmpFile);
+            LOCAL_SECCOMP = true;
+            if (ret == 1) {
+                LOCAL_SECCOMP_ALL = true;
+            }
+        } catch (Throwable t) {
+            // this is likely to happen unless the kernel is newish, its a best effort at the moment
+            // so we log stacktrace at debug for now...
+            if (logger.isDebugEnabled()) {
+                logger.debug("unable to install syscall filter", t);
+            }
+            logger.warn("unable to install syscall filter: ", t);
+        }
+    }
 }

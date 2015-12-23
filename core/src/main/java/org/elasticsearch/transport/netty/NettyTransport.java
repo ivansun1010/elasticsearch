@@ -19,15 +19,12 @@
 
 package org.elasticsearch.transport.netty;
 
-import com.google.common.base.Charsets;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.Version;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.common.Booleans;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.SuppressForbidden;
 import org.elasticsearch.common.bytes.ReleasablePagedBytesReference;
 import org.elasticsearch.common.component.AbstractLifecycleComponent;
 import org.elasticsearch.common.compress.CompressorFactory;
@@ -90,14 +87,17 @@ import org.jboss.netty.channel.socket.oio.OioServerSocketChannelFactory;
 import org.jboss.netty.util.HashedWheelTimer;
 
 import java.io.IOException;
+import java.net.BindException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.CancelledKeyException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -116,7 +116,19 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static org.elasticsearch.common.network.NetworkService.TcpSettings.*;
+import static java.util.Collections.unmodifiableMap;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_BLOCKING;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_BLOCKING_CLIENT;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_BLOCKING_SERVER;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_CONNECT_TIMEOUT;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_DEFAULT_CONNECT_TIMEOUT;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_DEFAULT_RECEIVE_BUFFER_SIZE;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_DEFAULT_SEND_BUFFER_SIZE;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_KEEP_ALIVE;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_NO_DELAY;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_RECEIVE_BUFFER_SIZE;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_REUSE_ADDRESS;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_SEND_BUFFER_SIZE;
 import static org.elasticsearch.common.settings.Settings.settingsBuilder;
 import static org.elasticsearch.common.transport.NetworkExceptionHelper.isCloseConnectionException;
 import static org.elasticsearch.common.transport.NetworkExceptionHelper.isConnectException;
@@ -174,7 +186,8 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
 
     protected final BigArrays bigArrays;
     protected final ThreadPool threadPool;
-    protected volatile OpenChannelsHandler serverOpenChannels;
+    // package private for testing
+    volatile OpenChannelsHandler serverOpenChannels;
     protected volatile ClientBootstrap clientBootstrap;
     // node id to actual channel
     protected final ConcurrentMap<DiscoveryNode, NodeChannels> connectedNodes = newConcurrentMap();
@@ -194,6 +207,8 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
     final ScheduledPing scheduledPing;
 
     @Inject
+    @SuppressForbidden(reason = "sets org.jboss.netty.epollBugWorkaround based on netty.epollBugWorkaround")
+    // TODO: why be confusing like this? just let the user do it with the netty parameter instead!
     public NettyTransport(Settings settings, ThreadPool threadPool, NetworkService networkService, BigArrays bigArrays, Version version, NamedWriteableRegistry namedWriteableRegistry) {
         super(settings);
         this.threadPool = threadPool;
@@ -210,7 +225,7 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
         this.connectTimeout = this.settings.getAsTime("transport.netty.connect_timeout", settings.getAsTime("transport.tcp.connect_timeout", settings.getAsTime(TCP_CONNECT_TIMEOUT, TCP_DEFAULT_CONNECT_TIMEOUT)));
         this.maxCumulationBufferCapacity = this.settings.getAsBytesSize("transport.netty.max_cumulation_buffer_capacity", null);
         this.maxCompositeBufferComponents = this.settings.getAsInt("transport.netty.max_composite_buffer_components", -1);
-        this.compress = settings.getAsBoolean(TransportSettings.TRANSPORT_TCP_COMPRESS, false);
+        this.compress = Transport.TRANSPORT_TCP_COMPRESS.get(settings);
 
         this.connectionsPerNodeRecovery = this.settings.getAsInt("transport.netty.connections_per_node.recovery", settings.getAsInt(CONNECTIONS_PER_NODE_RECOVERY, 2));
         this.connectionsPerNodeBulk = this.settings.getAsInt("transport.netty.connections_per_node.bulk", settings.getAsInt(CONNECTIONS_PER_NODE_BULK, 3));
@@ -280,9 +295,9 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
                 this.serverOpenChannels = openChannels;
 
                 // extract default profile first and create standard bootstrap
-                Map<String, Settings> profiles = settings.getGroups("transport.profiles", true);
+                Map<String, Settings> profiles = TRANSPORT_PROFILES_SETTING.get(settings()).getAsGroups(true);
                 if (!profiles.containsKey(DEFAULT_PROFILE)) {
-                    profiles = Maps.newHashMap(profiles);
+                    profiles = new HashMap<>(profiles);
                     profiles.put(DEFAULT_PROFILE, Settings.EMPTY);
                 }
 
@@ -318,12 +333,6 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
                     createServerBootstrap(name, mergedSettings);
                     bindServerBootstrap(name, mergedSettings);
                 }
-
-                InetSocketAddress boundAddress = (InetSocketAddress) serverChannels.get(DEFAULT_PROFILE).get(0).getLocalAddress();
-                int publishPort = settings.getAsInt("transport.netty.publish_port", settings.getAsInt("transport.publish_port", boundAddress.getPort()));
-                String publishHost = settings.get("transport.netty.publish_host", settings.get("transport.publish_host", settings.get("transport.host")));
-                InetSocketAddress publishAddress = createPublishAddress(publishHost, publishPort);
-                this.boundAddress = new BoundTransportAddress(new InetSocketTransportAddress(boundAddress), new InetSocketTransportAddress(publishAddress));
             }
             success = true;
         } finally {
@@ -335,15 +344,7 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
 
     @Override
     public Map<String, BoundTransportAddress> profileBoundAddresses() {
-        return ImmutableMap.copyOf(profileBoundAddresses);
-    }
-
-    private InetSocketAddress createPublishAddress(String publishHost, int publishPort) {
-        try {
-            return new InetSocketAddress(networkService.resolvePublishHostAddress(publishHost), publishPort);
-        } catch (Exception e) {
-            throw new BindTransportException("Failed to resolve publish address", e);
-        }
+        return unmodifiableMap(new HashMap<>(profileBoundAddresses));
     }
 
     private ClientBootstrap createClientBootstrap() {
@@ -431,27 +432,37 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
     private void bindServerBootstrap(final String name, final Settings settings) {
         // Bind and start to accept incoming connections.
         InetAddress hostAddresses[];
-        String bindHost = settings.get("bind_host");
+        String bindHosts[] = settings.getAsArray("bind_host", null);
         try {
-            hostAddresses = networkService.resolveBindHostAddress(bindHost);
+            hostAddresses = networkService.resolveBindHostAddresses(bindHosts);
         } catch (IOException e) {
-            throw new BindTransportException("Failed to resolve host [" + bindHost + "]", e);
+            throw new BindTransportException("Failed to resolve host " + Arrays.toString(bindHosts) + "", e);
         }
         if (logger.isDebugEnabled()) {
             String[] addresses = new String[hostAddresses.length];
             for (int i = 0; i < hostAddresses.length; i++) {
                 addresses[i] = NetworkAddress.format(hostAddresses[i]);
             }
-            logger.debug("binding server bootstrap to: {}", addresses);
+            logger.debug("binding server bootstrap to: {}", (Object)addresses);
         }
+
+        assert hostAddresses.length > 0;
+
+        List<InetSocketAddress> boundAddresses = new ArrayList<>();
         for (InetAddress hostAddress : hostAddresses) {
-            bindServerBootstrap(name, hostAddress, settings);
+            boundAddresses.add(bindToPort(name, hostAddress, settings.get("port")));
+        }
+
+        final BoundTransportAddress boundTransportAddress = createBoundTransportAddress(name, settings, boundAddresses);
+
+        if (DEFAULT_PROFILE.equals(name)) {
+            this.boundAddress = boundTransportAddress;
+        } else {
+            profileBoundAddresses.put(name, boundTransportAddress);
         }
     }
-        
-    private void bindServerBootstrap(final String name, final InetAddress hostAddress, Settings settings) {
 
-        String port = settings.get("port");
+    private InetSocketAddress bindToPort(final String name, final InetAddress hostAddress, String port) {
         PortsRange portsRange = new PortsRange(port);
         final AtomicReference<Exception> lastException = new AtomicReference<>();
         final AtomicReference<InetSocketAddress> boundSocket = new AtomicReference<>();
@@ -467,7 +478,7 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
                             serverChannels.put(name, list);
                         }
                         list.add(channel);
-                        boundSocket.set((InetSocketAddress)channel.getLocalAddress());
+                        boundSocket.set((InetSocketAddress) channel.getLocalAddress());
                     }
                 } catch (Exception e) {
                     lastException.set(e);
@@ -480,16 +491,64 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
             throw new BindTransportException("Failed to bind to [" + port + "]", lastException.get());
         }
 
-        if (!DEFAULT_PROFILE.equals(name)) {
-            InetSocketAddress boundAddress = boundSocket.get();
-            int publishPort = settings.getAsInt("publish_port", boundAddress.getPort());
-            String publishHost = settings.get("publish_host", boundAddress.getHostString());
-            InetSocketAddress publishAddress = createPublishAddress(publishHost, publishPort);
-            // TODO: support real multihoming with publishing. Today we use putIfAbsent so only the prioritized address is published
-            profileBoundAddresses.putIfAbsent(name, new BoundTransportAddress(new InetSocketTransportAddress(boundAddress), new InetSocketTransportAddress(publishAddress)));
+        if (logger.isDebugEnabled()) {
+            logger.debug("Bound profile [{}] to address {{}}", name, NetworkAddress.format(boundSocket.get()));
         }
 
-        logger.info("Bound profile [{}] to address {{}}", name, NetworkAddress.format(boundSocket.get()));
+        return boundSocket.get();
+    }
+
+    private BoundTransportAddress createBoundTransportAddress(String name, Settings profileSettings, List<InetSocketAddress> boundAddresses) {
+        String[] boundAddressesHostStrings = new String[boundAddresses.size()];
+        TransportAddress[] transportBoundAddresses = new TransportAddress[boundAddresses.size()];
+        for (int i = 0; i < boundAddresses.size(); i++) {
+            InetSocketAddress boundAddress = boundAddresses.get(i);
+            boundAddressesHostStrings[i] = boundAddress.getHostString();
+            transportBoundAddresses[i] = new InetSocketTransportAddress(boundAddress);
+        }
+
+        final String[] publishHosts;
+        if (DEFAULT_PROFILE.equals(name)) {
+            publishHosts = settings.getAsArray("transport.netty.publish_host", settings.getAsArray("transport.publish_host", settings.getAsArray("transport.host", null)));
+        } else {
+            publishHosts = profileSettings.getAsArray("publish_host", boundAddressesHostStrings);
+        }
+
+        final InetAddress publishInetAddress;
+        try {
+            publishInetAddress = networkService.resolvePublishHostAddresses(publishHosts);
+        } catch (Exception e) {
+            throw new BindTransportException("Failed to resolve publish address", e);
+        }
+
+        Integer publishPort;
+        if (DEFAULT_PROFILE.equals(name)) {
+            publishPort = settings.getAsInt("transport.netty.publish_port", settings.getAsInt("transport.publish_port", null));
+        } else {
+            publishPort = profileSettings.getAsInt("publish_port", null);
+        }
+
+        // if port not explicitly provided, search for port of address in boundAddresses that matches publishInetAddress
+        if (publishPort == null) {
+            for (InetSocketAddress boundAddress : boundAddresses) {
+                InetAddress boundInetAddress = boundAddress.getAddress();
+                if (boundInetAddress.isAnyLocalAddress() || boundInetAddress.equals(publishInetAddress)) {
+                    publishPort = boundAddress.getPort();
+                    break;
+                }
+            }
+        }
+
+        // if port still not matches, just take port of first bound address
+        if (publishPort == null) {
+            // TODO: In case of DEFAULT_PROFILE we should probably fail here, as publish address does not match any bound address
+            // In case of a custom profile, we might use the publish address of the default profile
+            publishPort = boundAddresses.get(0).getPort();
+            logger.warn("Publish port not found by matching publish address [{}] to bound addresses [{}], falling back to port [{}] of first bound address", publishInetAddress, boundAddresses, publishPort);
+        }
+
+        final TransportAddress publishAddress = new InetSocketTransportAddress(new InetSocketAddress(publishInetAddress, publishPort));
+        return new BoundTransportAddress(transportBoundAddresses, publishAddress);
     }
 
     private void createServerBootstrap(String name, Settings settings) {
@@ -620,15 +679,15 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
 
     @Override
     public TransportAddress[] addressesFromString(String address, int perAddressLimit) throws Exception {
-        return parse(address, settings.get("transport.profiles.default.port", 
-                              settings.get("transport.netty.port", 
-                              settings.get("transport.tcp.port", 
+        return parse(address, settings.get("transport.profiles.default.port",
+                              settings.get("transport.netty.port",
+                              settings.get("transport.tcp.port",
                               DEFAULT_PORT_RANGE))), perAddressLimit);
     }
-    
+
     // this code is a take on guava's HostAndPort, like a HostAndPortRange
-    
-    // pattern for validating ipv6 bracked addresses. 
+
+    // pattern for validating ipv6 bracked addresses.
     // not perfect, but PortsRange should take care of any port range validation, not a regex
     private static final Pattern BRACKET_PATTERN = Pattern.compile("^\\[(.*:.*)\\](?::([\\d\\-]*))?$");
 
@@ -661,12 +720,12 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
             }
           }
         }
-        
+
         // if port isn't specified, fill with the default
         if (portString == null || portString.isEmpty()) {
             portString = defaultPortRange;
         }
-        
+
         // generate address for each port in the range
         Set<InetAddress> addresses = new HashSet<>(Arrays.asList(InetAddress.getAllByName(host)));
         List<TransportAddress> transportAddresses = new ArrayList<>();
@@ -705,6 +764,11 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
             // close the channel as safe measure, which will cause a node to be disconnected if relevant
             ctx.getChannel().close();
             disconnectFromNodeChannel(ctx.getChannel(), e.getCause());
+        } else if (e.getCause() instanceof BindException) {
+            logger.trace("bind exception caught on transport layer [{}]", e.getCause(), ctx.getChannel());
+            // close the channel as safe measure, which will cause a node to be disconnected if relevant
+            ctx.getChannel().close();
+            disconnectFromNodeChannel(ctx.getChannel(), e.getCause());
         } else if (e.getCause() instanceof CancelledKeyException) {
             logger.trace("cancelled key exception caught on transport layer [{}], disconnecting from relevant node", e.getCause(), ctx.getChannel());
             // close the channel as safe measure, which will cause a node to be disconnected if relevant
@@ -713,7 +777,7 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
         } else if (e.getCause() instanceof SizeHeaderFrameDecoder.HttpOnTransportException) {
             // in case we are able to return data, serialize the exception content and sent it back to the client
             if (ctx.getChannel().isOpen()) {
-                ChannelBuffer buffer = ChannelBuffers.wrappedBuffer(e.getCause().getMessage().getBytes(Charsets.UTF_8));
+                ChannelBuffer buffer = ChannelBuffers.wrappedBuffer(e.getCause().getMessage().getBytes(StandardCharsets.UTF_8));
                 ChannelFuture channelFuture = ctx.getChannel().write(buffer);
                 channelFuture.addListener(new ChannelFutureListener() {
                     @Override
@@ -757,7 +821,7 @@ public class NettyTransport extends AbstractLifecycleComponent<Transport> implem
         Channel targetChannel = nodeChannel(node, options);
 
         if (compress) {
-            options.withCompress(true);
+            options = TransportRequestOptions.builder(options).withCompress(true).build();
         }
 
         byte status = 0;

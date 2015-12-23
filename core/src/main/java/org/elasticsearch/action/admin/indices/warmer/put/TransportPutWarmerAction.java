@@ -34,7 +34,6 @@ import org.elasticsearch.cluster.block.ClusterBlockLevel;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.MetaData;
-import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.IndexNotFoundException;
@@ -58,7 +57,7 @@ public class TransportPutWarmerAction extends TransportMasterNodeAction<PutWarme
     @Inject
     public TransportPutWarmerAction(Settings settings, TransportService transportService, ClusterService clusterService, ThreadPool threadPool,
                                     TransportSearchAction searchAction, ActionFilters actionFilters, IndexNameExpressionResolver indexNameExpressionResolver) {
-        super(settings, PutWarmerAction.NAME, transportService, clusterService, threadPool, actionFilters, indexNameExpressionResolver, PutWarmerRequest.class);
+        super(settings, PutWarmerAction.NAME, transportService, clusterService, threadPool, actionFilters, indexNameExpressionResolver, PutWarmerRequest::new);
         this.searchAction = searchAction;
     }
 
@@ -114,11 +113,9 @@ public class TransportPutWarmerAction extends TransportMasterNodeAction<PutWarme
                         MetaData metaData = currentState.metaData();
                         String[] concreteIndices = indexNameExpressionResolver.concreteIndices(currentState, request.searchRequest().indicesOptions(), request.searchRequest().indices());
 
-                        BytesReference source = null;
-                        if (request.searchRequest().source() != null && request.searchRequest().source().length() > 0) {
-                            source = request.searchRequest().source();
-                        } else if (request.searchRequest().extraSource() != null && request.searchRequest().extraSource().length() > 0) {
-                            source = request.searchRequest().extraSource();
+                        IndexWarmersMetaData.SearchSource source = null;
+                        if (request.searchRequest().source() != null) {
+                            source = new IndexWarmersMetaData.SearchSource(request.searchRequest().source());
                         }
 
                         // now replace it on the metadata

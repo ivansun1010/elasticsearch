@@ -28,7 +28,6 @@ import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.repositories.RepositoriesModule;
 import org.elasticsearch.rest.action.cat.AbstractCatAction;
 
-import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -63,26 +62,6 @@ public class JvmExamplePlugin extends Plugin {
     public Collection<Class<? extends LifecycleComponent>> nodeServices() {
         Collection<Class<? extends LifecycleComponent>> services = new ArrayList<>();
         return services;
-    }
-
-    @Override
-    public Collection<Module> indexModules(Settings indexSettings) {
-        return Collections.emptyList();
-    }
-
-    @Override
-    public Collection<Class<? extends Closeable>> indexServices() {
-        return Collections.emptyList();
-    }
-
-    @Override
-    public Collection<Module> shardModules(Settings indexSettings) {
-        return Collections.emptyList();
-    }
-
-    @Override
-    public Collection<Class<? extends Closeable>> shardServices() {
-        return Collections.emptyList();
     }
 
     @Override

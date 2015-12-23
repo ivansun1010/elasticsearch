@@ -19,10 +19,11 @@
 
 package org.elasticsearch.bootstrap;
 
-import com.google.common.base.Strings;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
 import org.elasticsearch.Build;
+import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.SuppressForbidden;
 import org.elasticsearch.common.cli.CliTool;
 import org.elasticsearch.common.cli.CliToolConfig;
 import org.elasticsearch.common.cli.Terminal;
@@ -81,7 +82,7 @@ final class BootstrapCLIParser extends CliTool {
 
         @Override
         public ExitStatus execute(Settings settings, Environment env) throws Exception {
-            terminal.println("Version: %s, Build: %s/%s, JVM: %s", org.elasticsearch.Version.CURRENT, Build.CURRENT.hashShort(), Build.CURRENT.timestamp(), JvmInfo.jvmInfo().version());
+            terminal.println("Version: %s, Build: %s/%s, JVM: %s", org.elasticsearch.Version.CURRENT, Build.CURRENT.shortHash(), Build.CURRENT.date(), JvmInfo.jvmInfo().version());
             return ExitStatus.OK_AND_EXIT;
         }
     }
@@ -100,6 +101,8 @@ final class BootstrapCLIParser extends CliTool {
                 .stopAtNonOption(true) // needed to parse the --foo.bar options, so this parser must be lenient
                 .build();
 
+        // TODO: don't use system properties as a way to do this, its horrible...
+        @SuppressForbidden(reason = "Sets system properties passed as CLI parameters")
         public static Command parse(Terminal terminal, CommandLine cli) {
             if (cli.hasOption("V")) {
                 return Version.parse(terminal, cli);
@@ -128,7 +131,13 @@ final class BootstrapCLIParser extends CliTool {
             while (iterator.hasNext()) {
                 String arg = iterator.next();
                 if (!arg.startsWith("--")) {
-                    throw new IllegalArgumentException("Parameter [" + arg + "]does not start with --");
+                    if (arg.startsWith("-D") || arg.startsWith("-d") || arg.startsWith("-p")) {
+                        throw new IllegalArgumentException(
+                                "Parameter [" + arg + "] starting with \"-D\", \"-d\" or \"-p\" must be before any parameters starting with --"
+                        );
+                    } else {
+                        throw new IllegalArgumentException("Parameter [" + arg + "]does not start with --");
+                    }
                 }
                 // if there is no = sign, we have to get the next argu
                 arg = arg.replace("--", "");

@@ -23,14 +23,13 @@ import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.common.Priority;
 import org.elasticsearch.test.ESIntegTestCase;
-import org.junit.Test;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
-import static com.google.common.collect.Maps.newHashMap;
-import static com.google.common.collect.Sets.newHashSet;
 import static org.elasticsearch.cluster.metadata.AliasAction.newAddAliasAction;
+import static org.elasticsearch.common.util.set.Sets.newHashSet;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
 
@@ -38,8 +37,6 @@ import static org.hamcrest.Matchers.nullValue;
  *
  */
 public class AliasResolveRoutingIT extends ESIntegTestCase {
-
-    @Test
     public void testResolveIndexRouting() throws Exception {
         createIndex("test1");
         createIndex("test2");
@@ -54,32 +51,33 @@ public class AliasResolveRoutingIT extends ESIntegTestCase {
         client().admin().indices().prepareAliases().addAliasAction(newAddAliasAction("test1", "alias0").routing("0")).execute().actionGet();
         client().admin().indices().prepareAliases().addAliasAction(newAddAliasAction("test2", "alias0").routing("0")).execute().actionGet();
 
-        assertThat(clusterService().state().metaData().resolveIndexRouting(null, "test1"), nullValue());
-        assertThat(clusterService().state().metaData().resolveIndexRouting(null, "alias"), nullValue());
+        assertThat(clusterService().state().metaData().resolveIndexRouting(null, null, "test1"), nullValue());
+        assertThat(clusterService().state().metaData().resolveIndexRouting(null, null, "alias"), nullValue());
 
-        assertThat(clusterService().state().metaData().resolveIndexRouting(null, "test1"), nullValue());
-        assertThat(clusterService().state().metaData().resolveIndexRouting(null, "alias10"), equalTo("0"));
-        assertThat(clusterService().state().metaData().resolveIndexRouting(null, "alias20"), equalTo("0"));
-        assertThat(clusterService().state().metaData().resolveIndexRouting(null, "alias21"), equalTo("1"));
-        assertThat(clusterService().state().metaData().resolveIndexRouting("3", "test1"), equalTo("3"));
-        assertThat(clusterService().state().metaData().resolveIndexRouting("0", "alias10"), equalTo("0"));
+        assertThat(clusterService().state().metaData().resolveIndexRouting(null, null, "test1"), nullValue());
+        assertThat(clusterService().state().metaData().resolveIndexRouting(null, null, "alias10"), equalTo("0"));
+        assertThat(clusterService().state().metaData().resolveIndexRouting(null, null, "alias20"), equalTo("0"));
+        assertThat(clusterService().state().metaData().resolveIndexRouting(null, null, "alias21"), equalTo("1"));
+        assertThat(clusterService().state().metaData().resolveIndexRouting(null, "3", "test1"), equalTo("3"));
+        assertThat(clusterService().state().metaData().resolveIndexRouting(null, "0", "alias10"), equalTo("0"));
+
+        // Force the alias routing and ignore the parent.
+        assertThat(clusterService().state().metaData().resolveIndexRouting("1", null, "alias10"), equalTo("0"));
         try {
-            clusterService().state().metaData().resolveIndexRouting("1", "alias10");
+            clusterService().state().metaData().resolveIndexRouting(null, "1", "alias10");
             fail("should fail");
         } catch (IllegalArgumentException e) {
             // all is well, we can't have two mappings, one provided, and one in the alias
         }
 
         try {
-            clusterService().state().metaData().resolveIndexRouting(null, "alias0");
+            clusterService().state().metaData().resolveIndexRouting(null, null, "alias0");
             fail("should fail");
         } catch (IllegalArgumentException ex) {
             // Expected
         }
     }
 
-
-    @Test
     public void testResolveSearchRouting() throws Exception {
         createIndex("test1");
         createIndex("test2");
@@ -133,13 +131,13 @@ public class AliasResolveRoutingIT extends ESIntegTestCase {
 
 
     private <K, V> Map<K, V> newMap(K key, V value) {
-        Map<K, V> r = newHashMap();
+        Map<K, V> r = new HashMap<>();
         r.put(key, value);
         return r;
     }
 
     private <K, V> Map<K, V> newMap(K key1, V value1, K key2, V value2) {
-        Map<K, V> r = newHashMap();
+        Map<K, V> r = new HashMap<>();
         r.put(key1, value1);
         r.put(key2, value2);
         return r;

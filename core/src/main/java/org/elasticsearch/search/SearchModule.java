@@ -21,10 +21,8 @@ package org.elasticsearch.search;
 
 import org.elasticsearch.common.inject.AbstractModule;
 import org.elasticsearch.common.inject.multibindings.Multibinder;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.query.functionscore.ScoreFunctionParser;
 import org.elasticsearch.index.query.functionscore.ScoreFunctionParserMapper;
-import org.elasticsearch.index.search.morelikethis.MoreLikeThisFetchService;
 import org.elasticsearch.search.action.SearchServiceTransportAction;
 import org.elasticsearch.search.aggregations.AggregationParseElement;
 import org.elasticsearch.search.aggregations.AggregationPhase;
@@ -66,7 +64,6 @@ import org.elasticsearch.search.aggregations.bucket.significant.SignificantTerms
 import org.elasticsearch.search.aggregations.bucket.significant.UnmappedSignificantTerms;
 import org.elasticsearch.search.aggregations.bucket.significant.heuristics.SignificanceHeuristicParser;
 import org.elasticsearch.search.aggregations.bucket.significant.heuristics.SignificanceHeuristicParserMapper;
-import org.elasticsearch.search.aggregations.bucket.significant.heuristics.SignificanceHeuristicStreams;
 import org.elasticsearch.search.aggregations.bucket.terms.DoubleTerms;
 import org.elasticsearch.search.aggregations.bucket.terms.LongTerms;
 import org.elasticsearch.search.aggregations.bucket.terms.StringTerms;
@@ -78,6 +75,8 @@ import org.elasticsearch.search.aggregations.metrics.cardinality.CardinalityPars
 import org.elasticsearch.search.aggregations.metrics.cardinality.InternalCardinality;
 import org.elasticsearch.search.aggregations.metrics.geobounds.GeoBoundsParser;
 import org.elasticsearch.search.aggregations.metrics.geobounds.InternalGeoBounds;
+import org.elasticsearch.search.aggregations.metrics.geocentroid.GeoCentroidParser;
+import org.elasticsearch.search.aggregations.metrics.geocentroid.InternalGeoCentroid;
 import org.elasticsearch.search.aggregations.metrics.max.InternalMax;
 import org.elasticsearch.search.aggregations.metrics.max.MaxParser;
 import org.elasticsearch.search.aggregations.metrics.min.InternalMin;
@@ -130,7 +129,6 @@ import org.elasticsearch.search.aggregations.pipeline.movavg.MovAvgParser;
 import org.elasticsearch.search.aggregations.pipeline.movavg.MovAvgPipelineAggregator;
 import org.elasticsearch.search.aggregations.pipeline.movavg.models.MovAvgModel;
 import org.elasticsearch.search.aggregations.pipeline.movavg.models.MovAvgModelParserMapper;
-import org.elasticsearch.search.aggregations.pipeline.movavg.models.MovAvgModelStreams;
 import org.elasticsearch.search.aggregations.pipeline.serialdiff.SerialDiffParser;
 import org.elasticsearch.search.aggregations.pipeline.serialdiff.SerialDiffPipelineAggregator;
 import org.elasticsearch.search.controller.SearchPhaseController;
@@ -151,14 +149,14 @@ import org.elasticsearch.search.query.QueryPhase;
 import org.elasticsearch.search.suggest.Suggester;
 import org.elasticsearch.search.suggest.Suggesters;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  *
  */
 public class SearchModule extends AbstractModule {
 
-    private final Settings settings;
     private final Set<Class<? extends Aggregator.Parser>> aggParsers = new HashSet<>();
     private final Set<Class<? extends PipelineAggregator.Parser>> pipelineAggParsers = new HashSet<>();
     private final Highlighters highlighters = new Highlighters();
@@ -170,19 +168,6 @@ public class SearchModule extends AbstractModule {
 
     // pkg private so tests can mock
     Class<? extends SearchService> searchServiceImpl = SearchService.class;
-
-    public SearchModule(Settings settings) {
-        this.settings = settings;
-    }
-
-    // TODO document public API
-    public void registerStream(SignificanceHeuristicStreams.Stream stream) {
-        SignificanceHeuristicStreams.registerStream(stream);
-    }
-
-    public void registerStream(MovAvgModelStreams.Stream stream) {
-        MovAvgModelStreams.registerStream(stream);
-    }
 
     public void registerHighlighter(String key, Class<? extends Highlighter> clazz) {
         highlighters.registerExtension(key, clazz);
@@ -255,7 +240,7 @@ public class SearchModule extends AbstractModule {
         for (Class<? extends ScoreFunctionParser> clazz : functionScoreParsers) {
             parserMapBinder.addBinding().to(clazz);
         }
-        bind(ScoreFunctionParserMapper.class);
+        bind(ScoreFunctionParserMapper.class).asEagerSingleton();
     }
 
     protected void configureHighlighters() {
@@ -292,6 +277,7 @@ public class SearchModule extends AbstractModule {
         multibinderAggParser.addBinding().to(ReverseNestedParser.class);
         multibinderAggParser.addBinding().to(TopHitsParser.class);
         multibinderAggParser.addBinding().to(GeoBoundsParser.class);
+        multibinderAggParser.addBinding().to(GeoCentroidParser.class);
         multibinderAggParser.addBinding().to(ScriptedMetricParser.class);
         multibinderAggParser.addBinding().to(ChildrenParser.class);
         for (Class<? extends Aggregator.Parser> parser : aggParsers) {
@@ -339,8 +325,6 @@ public class SearchModule extends AbstractModule {
         bind(SearchPhaseController.class).asEagerSingleton();
         bind(FetchPhase.class).asEagerSingleton();
         bind(SearchServiceTransportAction.class).asEagerSingleton();
-        bind(MoreLikeThisFetchService.class).asEagerSingleton();
-
         if (searchServiceImpl == SearchService.class) {
             bind(SearchService.class).asEagerSingleton();
         } else {
@@ -363,6 +347,7 @@ public class SearchModule extends AbstractModule {
         InternalHDRPercentileRanks.registerStreams();
         InternalCardinality.registerStreams();
         InternalScriptedMetric.registerStreams();
+        InternalGeoCentroid.registerStreams();
 
         // buckets
         InternalGlobal.registerStreams();
@@ -401,7 +386,7 @@ public class SearchModule extends AbstractModule {
         SumBucketPipelineAggregator.registerStreams();
         StatsBucketPipelineAggregator.registerStreams();
         ExtendedStatsBucketPipelineAggregator.registerStreams();
-        PercentilesBucketPipelineAggregator.registerStreams();        
+        PercentilesBucketPipelineAggregator.registerStreams();
         MovAvgPipelineAggregator.registerStreams();
         CumulativeSumPipelineAggregator.registerStreams();
         BucketScriptPipelineAggregator.registerStreams();

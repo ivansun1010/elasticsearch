@@ -36,15 +36,11 @@ public interface ScriptEngineService extends Closeable {
 
     boolean sandboxed();
 
-    Object compile(String script);
+    Object compile(String script, Map<String, String> params);
 
     ExecutableScript executable(CompiledScript compiledScript, @Nullable Map<String, Object> vars);
 
     SearchScript search(CompiledScript compiledScript, SearchLookup lookup, @Nullable Map<String, Object> vars);
-
-    Object execute(CompiledScript compiledScript, Map<String, Object> vars);
-
-    Object unwrap(Object value);
 
     /**
      * Handler method called when a script is removed from the Guava cache.

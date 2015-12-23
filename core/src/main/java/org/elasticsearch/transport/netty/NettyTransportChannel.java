@@ -28,14 +28,17 @@ import org.elasticsearch.common.io.stream.ReleasableBytesStreamOutput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.lease.Releasables;
 import org.elasticsearch.common.netty.ReleaseChannelFutureListener;
-import org.elasticsearch.transport.*;
+import org.elasticsearch.transport.RemoteTransportException;
+import org.elasticsearch.transport.TransportChannel;
+import org.elasticsearch.transport.TransportResponse;
+import org.elasticsearch.transport.TransportResponseOptions;
+import org.elasticsearch.transport.TransportServiceAdapter;
 import org.elasticsearch.transport.support.TransportStatus;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.channel.Channel;
 import org.jboss.netty.channel.ChannelFuture;
 
 import java.io.IOException;
-import java.io.NotSerializableException;
 
 /**
  *
@@ -78,7 +81,7 @@ public class NettyTransportChannel implements TransportChannel {
     @Override
     public void sendResponse(TransportResponse response, TransportResponseOptions options) throws IOException {
         if (transport.compress) {
-            options.withCompress(true);
+            options = TransportResponseOptions.builder(options).withCompress(transport.compress).build();
         }
 
         byte status = 0;

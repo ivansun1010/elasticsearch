@@ -28,8 +28,6 @@ import org.elasticsearch.index.analysis.NumericIntegerAnalyzer;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.Mapper;
 import org.elasticsearch.index.mapper.MapperParsingException;
-import org.elasticsearch.index.mapper.MergeMappingException;
-import org.elasticsearch.index.mapper.MergeResult;
 import org.elasticsearch.index.mapper.MetadataFieldMapper;
 import org.elasticsearch.index.mapper.ParseContext;
 import org.elasticsearch.index.mapper.core.IntegerFieldMapper;
@@ -56,7 +54,7 @@ public class SizeFieldMapper extends MetadataFieldMapper {
         static {
             SIZE_FIELD_TYPE.setStored(true);
             SIZE_FIELD_TYPE.setNumericPrecisionStep(Defaults.PRECISION_STEP_32_BIT);
-            SIZE_FIELD_TYPE.setNames(new MappedFieldType.Names(NAME));
+            SIZE_FIELD_TYPE.setName(NAME);
             SIZE_FIELD_TYPE.setIndexAnalyzer(NumericIntegerAnalyzer.buildNamedAnalyzer(Defaults.PRECISION_STEP_32_BIT));
             SIZE_FIELD_TYPE.setSearchAnalyzer(NumericIntegerAnalyzer.buildNamedAnalyzer(Integer.MAX_VALUE));
             SIZE_FIELD_TYPE.freeze();
@@ -68,7 +66,7 @@ public class SizeFieldMapper extends MetadataFieldMapper {
         protected EnabledAttributeMapper enabledState = EnabledAttributeMapper.UNSET_DISABLED;
 
         public Builder(MappedFieldType existing) {
-            super(NAME, existing == null ? Defaults.SIZE_FIELD_TYPE : existing);
+            super(NAME, existing == null ? Defaults.SIZE_FIELD_TYPE : existing, Defaults.SIZE_FIELD_TYPE);
             builder = this;
         }
 
@@ -85,9 +83,9 @@ public class SizeFieldMapper extends MetadataFieldMapper {
         }
     }
 
-    public static class TypeParser implements Mapper.TypeParser {
+    public static class TypeParser implements MetadataFieldMapper.TypeParser {
         @Override
-        public Mapper.Builder<?, ?> parse(String name, Map<String, Object> node, ParserContext parserContext) throws MapperParsingException {
+        public MetadataFieldMapper.Builder<?, ?> parse(String name, Map<String, Object> node, ParserContext parserContext) throws MapperParsingException {
             Builder builder = new Builder(parserContext.mapperService().fullName(NAME));
             for (Iterator<Map.Entry<String, Object>> iterator = node.entrySet().iterator(); iterator.hasNext();) {
                 Map.Entry<String, Object> entry = iterator.next();
@@ -103,9 +101,18 @@ public class SizeFieldMapper extends MetadataFieldMapper {
             }
             return builder;
         }
+
+        @Override
+        public MetadataFieldMapper getDefault(Settings indexSettings, MappedFieldType fieldType, String typeName) {
+            return new SizeFieldMapper(indexSettings, fieldType);
+        }
     }
 
     private EnabledAttributeMapper enabledState;
+
+    private SizeFieldMapper(Settings indexSettings, MappedFieldType mappedFieldType) {
+        this(Defaults.ENABLED_STATE, mappedFieldType == null ? Defaults.SIZE_FIELD_TYPE : mappedFieldType, indexSettings);
+    }
 
     private SizeFieldMapper(EnabledAttributeMapper enabled, MappedFieldType fieldType, Settings indexSettings) {
         super(NAME, fieldType, Defaults.SIZE_FIELD_TYPE, indexSettings);
@@ -169,12 +176,10 @@ public class SizeFieldMapper extends MetadataFieldMapper {
     }
 
     @Override
-    public void merge(Mapper mergeWith, MergeResult mergeResult) throws MergeMappingException {
+    protected void doMerge(Mapper mergeWith, boolean updateAllTypes) {
         SizeFieldMapper sizeFieldMapperMergeWith = (SizeFieldMapper) mergeWith;
-        if (!mergeResult.simulate()) {
-            if (sizeFieldMapperMergeWith.enabledState != enabledState && !sizeFieldMapperMergeWith.enabledState.unset()) {
-                this.enabledState = sizeFieldMapperMergeWith.enabledState;
-            }
+        if (sizeFieldMapperMergeWith.enabledState != enabledState && !sizeFieldMapperMergeWith.enabledState.unset()) {
+            this.enabledState = sizeFieldMapperMergeWith.enabledState;
         }
     }
 }

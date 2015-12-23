@@ -20,7 +20,11 @@
 package org.elasticsearch.common.lucene.search;
 
 import com.carrotsearch.hppc.ObjectHashSet;
-import org.apache.lucene.index.*;
+import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.index.Terms;
+import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.MultiPhraseQuery;
 import org.apache.lucene.search.Query;
@@ -29,7 +33,11 @@ import org.apache.lucene.util.StringHelper;
 import org.apache.lucene.util.ToStringUtils;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+import java.util.ListIterator;
 
 public class MultiPhrasePrefixQuery extends Query {
 
@@ -120,6 +128,10 @@ public class MultiPhrasePrefixQuery extends Query {
 
     @Override
     public Query rewrite(IndexReader reader) throws IOException {
+        Query rewritten = super.rewrite(reader);
+        if (rewritten != this) {
+            return rewritten;
+        }
         if (termArrays.isEmpty()) {
             return new MatchNoDocsQuery();
         }
@@ -142,7 +154,6 @@ public class MultiPhrasePrefixQuery extends Query {
             return Queries.newMatchNoDocsQuery();
         }
         query.add(terms.toArray(Term.class), position);
-        query.setBoost(getBoost());
         return query.rewrite(reader);
     }
 
@@ -230,10 +241,11 @@ public class MultiPhrasePrefixQuery extends Query {
      */
     @Override
     public boolean equals(Object o) {
-        if (!(o instanceof MultiPhrasePrefixQuery)) return false;
+        if (super.equals(o) == false) {
+            return false;
+        }
         MultiPhrasePrefixQuery other = (MultiPhrasePrefixQuery) o;
-        return this.getBoost() == other.getBoost()
-                && this.slop == other.slop
+        return this.slop == other.slop
                 && termArraysEquals(this.termArrays, other.termArrays)
                 && this.positions.equals(other.positions);
     }
@@ -243,11 +255,10 @@ public class MultiPhrasePrefixQuery extends Query {
      */
     @Override
     public int hashCode() {
-        return Float.floatToIntBits(getBoost())
+        return super.hashCode()
                 ^ slop
                 ^ termArraysHashCode()
-                ^ positions.hashCode()
-                ^ 0x4AC65113;
+                ^ positions.hashCode();
     }
 
     // Breakout calculation of the termArrays hashcode

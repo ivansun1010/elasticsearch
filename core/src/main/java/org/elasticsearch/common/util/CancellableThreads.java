@@ -18,6 +18,7 @@
  */
 package org.elasticsearch.common.util;
 
+import org.apache.lucene.util.ThreadInterruptedException;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -53,7 +54,7 @@ public class CancellableThreads {
      * the default implementation always throws an {@link ExecutionCancelledException}, suppressing
      * any other exception that occurred before cancellation
      *
-     * @param reason              reason for failure supplied by the caller of {@link @cancel}
+     * @param reason              reason for failure supplied by the caller of {@link #cancel}
      * @param suppressedException any error that was encountered during the execution before the operation was cancelled.
      */
     protected void onCancel(String reason, @Nullable Throwable suppressedException) {
@@ -83,7 +84,7 @@ public class CancellableThreads {
         RuntimeException throwable = null;
         try {
             interruptable.run();
-        } catch (InterruptedException e) {
+        } catch (InterruptedException | ThreadInterruptedException e) {
             // assume this is us and ignore
         } catch (RuntimeException t) {
             throwable = t;
@@ -131,7 +132,7 @@ public class CancellableThreads {
 
 
     public interface Interruptable {
-        public void run() throws InterruptedException;
+        void run() throws InterruptedException;
     }
 
     public static class ExecutionCancelledException extends ElasticsearchException {

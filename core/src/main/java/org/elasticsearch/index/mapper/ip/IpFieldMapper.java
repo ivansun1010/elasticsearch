@@ -19,7 +19,6 @@
 
 package org.elasticsearch.index.mapper.ip;
 
-import com.google.common.net.InetAddresses;
 import org.apache.lucene.analysis.NumericTokenStream;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.index.IndexOptions;
@@ -29,8 +28,11 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.NumericUtils;
 import org.elasticsearch.common.Explicit;
+import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.Numbers;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.network.Cidrs;
+import org.elasticsearch.common.network.InetAddresses;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.Fuzziness;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -46,6 +48,9 @@ import org.elasticsearch.index.mapper.ParseContext;
 import org.elasticsearch.index.mapper.core.LongFieldMapper;
 import org.elasticsearch.index.mapper.core.LongFieldMapper.CustomLongNumericField;
 import org.elasticsearch.index.mapper.core.NumberFieldMapper;
+import org.elasticsearch.index.query.QueryShardContext;
+import org.elasticsearch.search.aggregations.bucket.range.ipv4.InternalIPv4Range;
+
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
@@ -61,6 +66,7 @@ import static org.elasticsearch.index.mapper.core.TypeParsers.parseNumberField;
 public class IpFieldMapper extends NumberFieldMapper {
 
     public static final String CONTENT_TYPE = "ip";
+    public static final long MAX_IP = 4294967296l;
 
     public static String longToIp(long longIp) {
         int octet3 = (int) ((longIp >> 24) % 256);
@@ -115,8 +121,7 @@ public class IpFieldMapper extends NumberFieldMapper {
             setupFieldType(context);
             IpFieldMapper fieldMapper = new IpFieldMapper(name, fieldType, defaultFieldType, ignoreMalformed(context), coerce(context),
                     context.indexSettings(), multiFieldsBuilder.build(this, context), copyTo);
-            fieldMapper.includeInAll(includeInAll);
-            return fieldMapper;
+            return (IpFieldMapper) fieldMapper.includeInAll(includeInAll);
         }
 
         @Override
@@ -206,8 +211,25 @@ public class IpFieldMapper extends NumberFieldMapper {
         }
 
         @Override
+        public Query termQuery(Object value, @Nullable QueryShardContext context) {
+            if (value != null) {
+                long[] fromTo;
+                if (value instanceof BytesRef) {
+                    fromTo = Cidrs.cidrMaskToMinMax(((BytesRef) value).utf8ToString());
+                } else {
+                    fromTo = Cidrs.cidrMaskToMinMax(value.toString());
+                }
+                if (fromTo != null) {
+                    return rangeQuery(fromTo[0] == 0 ? null : fromTo[0],
+                            fromTo[1] == InternalIPv4Range.MAX_IP ? null : fromTo[1], true, false);
+                }
+            }
+            return super.termQuery(value, context);
+        }
+
+        @Override
         public Query rangeQuery(Object lowerTerm, Object upperTerm, boolean includeLower, boolean includeUpper) {
-            return NumericRangeQuery.newLongRange(names().indexName(), numericPrecisionStep(),
+            return NumericRangeQuery.newLongRange(name(), numericPrecisionStep(),
                 lowerTerm == null ? null : parseValue(lowerTerm),
                 upperTerm == null ? null : parseValue(upperTerm),
                 includeLower, includeUpper);
@@ -222,7 +244,7 @@ public class IpFieldMapper extends NumberFieldMapper {
             } catch (IllegalArgumentException e) {
                 iSim = fuzziness.asLong();
             }
-            return NumericRangeQuery.newLongRange(names().indexName(), numericPrecisionStep(),
+            return NumericRangeQuery.newLongRange(name(), numericPrecisionStep(),
                 iValue - iSim,
                 iValue + iSim,
                 true, true);
@@ -265,7 +287,7 @@ public class IpFieldMapper extends NumberFieldMapper {
             return;
         }
         if (context.includeInAll(includeInAll, this)) {
-            context.allEntries().addText(fieldType().names().fullName(), ipAsString, fieldType().boost());
+            context.allEntries().addText(fieldType().name(), ipAsString, fieldType().boost());
         }
 
         final long value = ipToLong(ipAsString);

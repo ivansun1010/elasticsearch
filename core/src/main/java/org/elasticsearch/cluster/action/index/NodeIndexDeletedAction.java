@@ -30,9 +30,15 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.util.concurrent.AbstractRunnable;
 import org.elasticsearch.index.Index;
+import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.threadpool.ThreadPool;
-import org.elasticsearch.transport.*;
+import org.elasticsearch.transport.EmptyTransportResponseHandler;
+import org.elasticsearch.transport.TransportChannel;
+import org.elasticsearch.transport.TransportRequest;
+import org.elasticsearch.transport.TransportRequestHandler;
+import org.elasticsearch.transport.TransportResponse;
+import org.elasticsearch.transport.TransportService;
 
 import java.io.IOException;
 import java.util.List;
@@ -57,8 +63,8 @@ public class NodeIndexDeletedAction extends AbstractComponent {
         super(settings);
         this.threadPool = threadPool;
         this.transportService = transportService;
-        transportService.registerRequestHandler(INDEX_DELETED_ACTION_NAME, NodeIndexDeletedMessage.class, ThreadPool.Names.SAME, new NodeIndexDeletedTransportHandler());
-        transportService.registerRequestHandler(INDEX_STORE_DELETED_ACTION_NAME, NodeIndexStoreDeletedMessage.class, ThreadPool.Names.SAME, new NodeIndexStoreDeletedTransportHandler());
+        transportService.registerRequestHandler(INDEX_DELETED_ACTION_NAME, NodeIndexDeletedMessage::new, ThreadPool.Names.SAME, new NodeIndexDeletedTransportHandler());
+        transportService.registerRequestHandler(INDEX_STORE_DELETED_ACTION_NAME, NodeIndexStoreDeletedMessage::new, ThreadPool.Names.SAME, new NodeIndexStoreDeletedTransportHandler());
         this.indicesService = indicesService;
     }
 
@@ -70,7 +76,7 @@ public class NodeIndexDeletedAction extends AbstractComponent {
         listeners.remove(listener);
     }
 
-    public void nodeIndexDeleted(final ClusterState clusterState, final String index, final Settings indexSettings, final String nodeId) {
+    public void nodeIndexDeleted(final ClusterState clusterState, final String index, final IndexSettings indexSettings, final String nodeId) {
         final DiscoveryNodes nodes = clusterState.nodes();
         transportService.sendRequest(clusterState.nodes().masterNode(),
                 INDEX_DELETED_ACTION_NAME, new NodeIndexDeletedMessage(index, nodeId), EmptyTransportResponseHandler.INSTANCE_SAME);
@@ -91,7 +97,7 @@ public class NodeIndexDeletedAction extends AbstractComponent {
         });
     }
 
-    private void lockIndexAndAck(String index, DiscoveryNodes nodes, String nodeId, ClusterState clusterState, Settings indexSettings) throws IOException {
+    private void lockIndexAndAck(String index, DiscoveryNodes nodes, String nodeId, ClusterState clusterState, IndexSettings indexSettings) throws IOException {
         try {
             // we are waiting until we can lock the index / all shards on the node and then we ack the delete of the store to the
             // master. If we can't acquire the locks here immediately there might be a shard of this index still holding on to the lock
@@ -102,6 +108,8 @@ public class NodeIndexDeletedAction extends AbstractComponent {
                     INDEX_STORE_DELETED_ACTION_NAME, new NodeIndexStoreDeletedMessage(index, nodeId), EmptyTransportResponseHandler.INSTANCE_SAME);
         } catch (LockObtainFailedException exc) {
             logger.warn("[{}] failed to lock all shards for index - timed out after 30 seconds", index);
+        } catch (InterruptedException e) {
+            logger.warn("[{}] failed to lock all shards for index - interrupted", index);
         }
     }
 
@@ -133,12 +141,12 @@ public class NodeIndexDeletedAction extends AbstractComponent {
         }
     }
 
-    static class NodeIndexDeletedMessage extends TransportRequest {
+    public static class NodeIndexDeletedMessage extends TransportRequest {
 
         String index;
         String nodeId;
 
-        NodeIndexDeletedMessage() {
+        public NodeIndexDeletedMessage() {
         }
 
         NodeIndexDeletedMessage(String index, String nodeId) {
@@ -161,12 +169,12 @@ public class NodeIndexDeletedAction extends AbstractComponent {
         }
     }
 
-    static class NodeIndexStoreDeletedMessage extends TransportRequest {
+    public static class NodeIndexStoreDeletedMessage extends TransportRequest {
 
         String index;
         String nodeId;
 
-        NodeIndexStoreDeletedMessage() {
+        public NodeIndexStoreDeletedMessage() {
         }
 
         NodeIndexStoreDeletedMessage(String index, String nodeId) {

@@ -31,8 +31,9 @@ import org.elasticsearch.cluster.block.ClusterBlockLevel;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.MetaDataIndexStateService;
 import org.elasticsearch.common.inject.Inject;
+import org.elasticsearch.common.settings.ClusterSettings;
+import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.node.settings.NodeSettingsService;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
 
@@ -43,15 +44,23 @@ public class TransportCloseIndexAction extends TransportMasterNodeAction<CloseIn
 
     private final MetaDataIndexStateService indexStateService;
     private final DestructiveOperations destructiveOperations;
+    private volatile boolean closeIndexEnabled;
+    public static final Setting<Boolean> CLUSTER_INDICES_CLOSE_ENABLE_SETTING = Setting.boolSetting("cluster.indices.close.enable", true, true, Setting.Scope.CLUSTER);
 
     @Inject
     public TransportCloseIndexAction(Settings settings, TransportService transportService, ClusterService clusterService,
                                      ThreadPool threadPool, MetaDataIndexStateService indexStateService,
-                                     NodeSettingsService nodeSettingsService, ActionFilters actionFilters,
+                                     ClusterSettings clusterSettings, ActionFilters actionFilters,
                                      IndexNameExpressionResolver indexNameExpressionResolver, DestructiveOperations destructiveOperations) {
-        super(settings, CloseIndexAction.NAME, transportService, clusterService, threadPool, actionFilters, indexNameExpressionResolver, CloseIndexRequest.class);
+        super(settings, CloseIndexAction.NAME, transportService, clusterService, threadPool, actionFilters, indexNameExpressionResolver, CloseIndexRequest::new);
         this.indexStateService = indexStateService;
         this.destructiveOperations = destructiveOperations;
+        this.closeIndexEnabled = CLUSTER_INDICES_CLOSE_ENABLE_SETTING.get(settings);
+        clusterSettings.addSettingsUpdateConsumer(CLUSTER_INDICES_CLOSE_ENABLE_SETTING, this::setCloseIndexEnabled);
+    }
+
+    private void setCloseIndexEnabled(boolean closeIndexEnabled) {
+        this.closeIndexEnabled = closeIndexEnabled;
     }
 
     @Override
@@ -68,6 +77,9 @@ public class TransportCloseIndexAction extends TransportMasterNodeAction<CloseIn
     @Override
     protected void doExecute(CloseIndexRequest request, ActionListener<CloseIndexResponse> listener) {
         destructiveOperations.failDestructive(request.indices());
+        if (closeIndexEnabled == false) {
+            throw new IllegalStateException("closing indices is disabled - set [" + CLUSTER_INDICES_CLOSE_ENABLE_SETTING.getKey() + ": true] to enable it. NOTE: closed indices still consume a significant amount of diskspace");
+        }
         super.doExecute(request, listener);
     }
 
@@ -92,7 +104,7 @@ public class TransportCloseIndexAction extends TransportMasterNodeAction<CloseIn
 
             @Override
             public void onFailure(Throwable t) {
-                logger.debug("failed to close indices [{}]", t, concreteIndices);
+                logger.debug("failed to close indices [{}]", t, (Object)concreteIndices);
                 listener.onFailure(t);
             }
         });

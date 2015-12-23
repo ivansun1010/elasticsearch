@@ -19,7 +19,6 @@
 
 package org.elasticsearch.index.mapper;
 
-import com.google.common.collect.ImmutableMap;
 import org.elasticsearch.Version;
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.ParseFieldMatcher;
@@ -27,9 +26,10 @@ import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.index.analysis.AnalysisService;
-import org.elasticsearch.index.similarity.SimilarityLookupService;
+import org.elasticsearch.index.similarity.SimilarityProvider;
 
 import java.util.Map;
+import java.util.function.Function;
 
 public abstract class Mapper implements ToXContent, Iterable<Mapper> {
 
@@ -81,21 +81,24 @@ public abstract class Mapper implements ToXContent, Iterable<Mapper> {
 
         class ParserContext {
 
+            private final String type;
+
             private final AnalysisService analysisService;
 
-            private final SimilarityLookupService similarityLookupService;
+            private final Function<String, SimilarityProvider> similarityLookupService;
 
             private final MapperService mapperService;
 
-            private final ImmutableMap<String, TypeParser> typeParsers;
+            private final Function<String, TypeParser> typeParsers;
 
             private final Version indexVersionCreated;
 
             private final ParseFieldMatcher parseFieldMatcher;
 
-            public ParserContext(AnalysisService analysisService, SimilarityLookupService similarityLookupService,
-                                 MapperService mapperService, ImmutableMap<String, TypeParser> typeParsers,
-                                Version indexVersionCreated, ParseFieldMatcher parseFieldMatcher) {
+            public ParserContext(String type, AnalysisService analysisService,  Function<String, SimilarityProvider> similarityLookupService,
+                                 MapperService mapperService, Function<String, TypeParser> typeParsers,
+                                 Version indexVersionCreated, ParseFieldMatcher parseFieldMatcher) {
+                this.type = type;
                 this.analysisService = analysisService;
                 this.similarityLookupService = similarityLookupService;
                 this.mapperService = mapperService;
@@ -104,12 +107,16 @@ public abstract class Mapper implements ToXContent, Iterable<Mapper> {
                 this.parseFieldMatcher = parseFieldMatcher;
             }
 
+            public String type() {
+                return type;
+            }
+
             public AnalysisService analysisService() {
                 return analysisService;
             }
 
-            public SimilarityLookupService similarityLookupService() {
-                return similarityLookupService;
+            public SimilarityProvider getSimilarity(String name) {
+                return similarityLookupService.apply(name);
             }
 
             public MapperService mapperService() {
@@ -117,7 +124,7 @@ public abstract class Mapper implements ToXContent, Iterable<Mapper> {
             }
 
             public TypeParser typeParser(String type) {
-                return typeParsers.get(Strings.toUnderscoreCase(type));
+                return typeParsers.apply(Strings.toUnderscoreCase(type));
             }
 
             public Version indexVersionCreated() {
@@ -127,6 +134,26 @@ public abstract class Mapper implements ToXContent, Iterable<Mapper> {
             public ParseFieldMatcher parseFieldMatcher() {
                 return parseFieldMatcher;
             }
+
+            public boolean isWithinMultiField() { return false; }
+
+            protected Function<String, TypeParser> typeParsers() { return typeParsers; }
+
+            protected Function<String, SimilarityProvider> similarityLookupService() { return similarityLookupService; }
+
+            public ParserContext createMultiFieldContext(ParserContext in) {
+                return new MultiFieldParserContext(in) {
+                    @Override
+                    public boolean isWithinMultiField() { return true; }
+                };
+            }
+
+            static class MultiFieldParserContext extends ParserContext {
+                MultiFieldParserContext(ParserContext in) {
+                    super(in.type(), in.analysisService, in.similarityLookupService(), in.mapperService(), in.typeParsers(), in.indexVersionCreated(), in.parseFieldMatcher());
+                }
+            }
+
         }
 
         Mapper.Builder<?,?> parse(String name, Map<String, Object> node, ParserContext parserContext) throws MapperParsingException;
@@ -147,5 +174,14 @@ public abstract class Mapper implements ToXContent, Iterable<Mapper> {
     /** Returns the canonical name which uniquely identifies the mapper against other mappers in a type. */
     public abstract String name();
 
-    public abstract void merge(Mapper mergeWith, MergeResult mergeResult) throws MergeMappingException;
+    /** Return the merge of {@code mergeWith} into this.
+     *  Both {@code this} and {@code mergeWith} will be left unmodified. */
+    public abstract Mapper merge(Mapper mergeWith, boolean updateAllTypes);
+
+    /**
+     * Update the field type of this mapper. This is necessary because some mapping updates
+     * can modify mappings across several types. This method must return a copy of the mapper
+     * so that the current mapper is not modified.
+     */
+    public abstract Mapper updateFieldType(Map<String, MappedFieldType> fullNameToFieldType);
 }

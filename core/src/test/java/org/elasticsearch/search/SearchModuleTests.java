@@ -19,7 +19,6 @@
 package org.elasticsearch.search;
 
 import org.elasticsearch.common.inject.ModuleTestCase;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.search.highlight.CustomHighlighter;
 import org.elasticsearch.search.highlight.Highlighter;
 import org.elasticsearch.search.highlight.PlainHighlighter;
@@ -31,7 +30,7 @@ import org.elasticsearch.search.suggest.phrase.PhraseSuggester;
 public class SearchModuleTests extends ModuleTestCase {
 
    public void testDoubleRegister() {
-       SearchModule module = new SearchModule(Settings.EMPTY);
+       SearchModule module = new SearchModule();
        try {
            module.registerHighlighter("fvh", PlainHighlighter.class);
        } catch (IllegalArgumentException e) {
@@ -46,7 +45,7 @@ public class SearchModuleTests extends ModuleTestCase {
    }
 
     public void testRegisterSuggester() {
-        SearchModule module = new SearchModule(Settings.EMPTY);
+        SearchModule module = new SearchModule();
         module.registerSuggester("custom", CustomSuggester.class);
         try {
             module.registerSuggester("custom", CustomSuggester.class);
@@ -57,7 +56,7 @@ public class SearchModuleTests extends ModuleTestCase {
     }
 
     public void testRegisterHighlighter() {
-        SearchModule module = new SearchModule(Settings.EMPTY);
+        SearchModule module = new SearchModule();
         module.registerHighlighter("custom", CustomHighlighter.class);
         try {
             module.registerHighlighter("custom", CustomHighlighter.class);

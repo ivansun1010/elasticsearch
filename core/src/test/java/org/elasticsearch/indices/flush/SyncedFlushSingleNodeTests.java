@@ -42,7 +42,7 @@ public class SyncedFlushSingleNodeTests extends ESSingleNodeTestCase {
         createIndex("test");
         client().prepareIndex("test", "test", "1").setSource("{}").get();
         IndexService test = getInstanceFromNode(IndicesService.class).indexService("test");
-        IndexShard shard = test.shard(0);
+        IndexShard shard = test.getShardOrNull(0);
 
         SyncedFlushService flushService = getInstanceFromNode(SyncedFlushService.class);
         final ShardId shardId = shard.shardId();
@@ -86,7 +86,7 @@ public class SyncedFlushSingleNodeTests extends ESSingleNodeTestCase {
         createIndex("test");
         client().prepareIndex("test", "test", "1").setSource("{}").get();
         IndexService test = getInstanceFromNode(IndicesService.class).indexService("test");
-        IndexShard shard = test.shard(0);
+        IndexShard shard = test.getShardOrNull(0);
 
         SyncedFlushService flushService = getInstanceFromNode(SyncedFlushService.class);
         final ShardId shardId = shard.shardId();
@@ -98,7 +98,7 @@ public class SyncedFlushSingleNodeTests extends ESSingleNodeTestCase {
         assertNotNull(syncedFlushResult);
         assertEquals(1, syncedFlushResult.successfulShards());
         assertEquals(1, syncedFlushResult.totalShards());
-        SyncedFlushService.SyncedFlushResponse response = syncedFlushResult.shardResponses().values().iterator().next();
+        SyncedFlushService.ShardSyncedFlushResponse response = syncedFlushResult.shardResponses().values().iterator().next();
         assertTrue(response.success());
     }
 
@@ -106,7 +106,7 @@ public class SyncedFlushSingleNodeTests extends ESSingleNodeTestCase {
         createIndex("test");
         client().prepareIndex("test", "test", "1").setSource("{}").get();
         IndexService test = getInstanceFromNode(IndicesService.class).indexService("test");
-        IndexShard shard = test.shard(0);
+        IndexShard shard = test.getShardOrNull(0);
 
         SyncedFlushService flushService = getInstanceFromNode(SyncedFlushService.class);
         final ShardId shardId = shard.shardId();
@@ -129,7 +129,7 @@ public class SyncedFlushSingleNodeTests extends ESSingleNodeTestCase {
     public void testSyncFailsOnIndexClosedOrMissing() throws InterruptedException {
         createIndex("test");
         IndexService test = getInstanceFromNode(IndicesService.class).indexService("test");
-        IndexShard shard = test.shard(0);
+        IndexShard shard = test.getShardOrNull(0);
 
         SyncedFlushService flushService = getInstanceFromNode(SyncedFlushService.class);
         SyncedFlushUtil.LatchedListener listener = new SyncedFlushUtil.LatchedListener();
@@ -157,12 +157,12 @@ public class SyncedFlushSingleNodeTests extends ESSingleNodeTestCase {
         assertNull(listener.result);
         assertEquals("no such index", listener.error.getMessage());
     }
-    
+
     public void testFailAfterIntermediateCommit() throws InterruptedException {
         createIndex("test");
         client().prepareIndex("test", "test", "1").setSource("{}").get();
         IndexService test = getInstanceFromNode(IndicesService.class).indexService("test");
-        IndexShard shard = test.shard(0);
+        IndexShard shard = test.getShardOrNull(0);
 
         SyncedFlushService flushService = getInstanceFromNode(SyncedFlushService.class);
         final ShardId shardId = shard.shardId();
@@ -195,7 +195,7 @@ public class SyncedFlushSingleNodeTests extends ESSingleNodeTestCase {
         createIndex("test");
         client().prepareIndex("test", "test", "1").setSource("{}").get();
         IndexService test = getInstanceFromNode(IndicesService.class).indexService("test");
-        IndexShard shard = test.shard(0);
+        IndexShard shard = test.getShardOrNull(0);
 
         SyncedFlushService flushService = getInstanceFromNode(SyncedFlushService.class);
         final ShardId shardId = shard.shardId();

@@ -26,10 +26,9 @@ import org.elasticsearch.common.xcontent.XContentType;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import static com.google.common.collect.Maps.newHashMap;
 
 /**
  * Settings loader that loads (parses) the settings in a xcontent format by flattening them
@@ -55,7 +54,7 @@ public abstract class XContentSettingsLoader implements SettingsLoader {
 
     public Map<String, String> load(XContentParser jp) throws IOException {
         StringBuilder sb = new StringBuilder();
-        Map<String, String> settings = newHashMap();
+        Map<String, String> settings = new HashMap<>();
         List<String> path = new ArrayList<>();
         XContentParser.Token token = jp.nextToken();
         if (token == null) {
@@ -104,9 +103,9 @@ public abstract class XContentSettingsLoader implements SettingsLoader {
             } else if (token == XContentParser.Token.FIELD_NAME) {
                 currentFieldName = parser.currentName();
             } else if (token == XContentParser.Token.VALUE_NULL) {
-                // ignore this
+                serializeValue(settings, sb, path, parser, currentFieldName, true);
             } else {
-                serializeValue(settings, sb, path, parser, currentFieldName);
+                serializeValue(settings, sb, path, parser, currentFieldName, false);
 
             }
         }
@@ -127,31 +126,33 @@ public abstract class XContentSettingsLoader implements SettingsLoader {
             } else if (token == XContentParser.Token.FIELD_NAME) {
                 fieldName = parser.currentName();
             } else if (token == XContentParser.Token.VALUE_NULL) {
+                serializeValue(settings, sb, path, parser, fieldName + '.' + (counter++), true);
                 // ignore
             } else {
-                serializeValue(settings, sb, path, parser, fieldName + '.' + (counter++));
+                serializeValue(settings, sb, path, parser, fieldName + '.' + (counter++), false);
             }
         }
     }
 
-    private void serializeValue(Map<String, String> settings, StringBuilder sb, List<String> path, XContentParser parser, String fieldName) throws IOException {
+    private void serializeValue(Map<String, String> settings, StringBuilder sb, List<String> path, XContentParser parser, String fieldName, boolean isNull) throws IOException {
         sb.setLength(0);
         for (String pathEle : path) {
             sb.append(pathEle).append('.');
         }
         sb.append(fieldName);
         String key = sb.toString();
-        String currentValue = parser.text();
-        String previousValue = settings.put(key, currentValue);
-        if (previousValue != null) {
+        String currentValue = isNull ? null : parser.text();
+
+        if (settings.containsKey(key)) {
             throw new ElasticsearchParseException(
                     "duplicate settings key [{}] found at line number [{}], column number [{}], previous value [{}], current value [{}]",
                     key,
                     parser.getTokenLocation().lineNumber,
                     parser.getTokenLocation().columnNumber,
-                    previousValue,
+                    settings.get(key),
                     currentValue
             );
         }
+        settings.put(key, currentValue);
     }
 }

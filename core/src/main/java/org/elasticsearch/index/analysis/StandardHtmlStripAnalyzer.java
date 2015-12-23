@@ -19,8 +19,8 @@
 
 package org.elasticsearch.index.analysis;
 
-import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.core.LowerCaseFilter;
 import org.apache.lucene.analysis.core.StopAnalyzer;
 import org.apache.lucene.analysis.core.StopFilter;
@@ -34,8 +34,7 @@ import org.apache.lucene.util.Version;
 public class StandardHtmlStripAnalyzer extends StopwordAnalyzerBase {
 
     /**
-     * @deprecated use {@link StandardHtmlStripAnalyzer#StandardHtmlStripAnalyzer(org.apache.lucene.util.Version,
-     * org.apache.lucene.analysis.util.CharArraySet)} instead
+     * @deprecated use {@link StandardHtmlStripAnalyzer#StandardHtmlStripAnalyzer(CharArraySet)} instead
      */
     @Deprecated
     public StandardHtmlStripAnalyzer() {

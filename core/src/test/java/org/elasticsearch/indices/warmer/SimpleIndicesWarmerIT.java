@@ -20,7 +20,6 @@
 package org.elasticsearch.indices.warmer;
 
 import com.carrotsearch.hppc.cursors.ObjectObjectCursor;
-
 import org.elasticsearch.action.admin.indices.stats.IndicesStatsResponse;
 import org.elasticsearch.action.admin.indices.warmer.delete.DeleteWarmerResponse;
 import org.elasticsearch.action.admin.indices.warmer.get.GetWarmersResponse;
@@ -33,7 +32,6 @@ import org.elasticsearch.search.warmer.IndexWarmerMissingException;
 import org.elasticsearch.search.warmer.IndexWarmersMetaData;
 import org.elasticsearch.test.ESIntegTestCase;
 import org.hamcrest.Matchers;
-import org.junit.Test;
 
 import java.util.List;
 
@@ -44,9 +42,7 @@ import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.is;
 
 public class SimpleIndicesWarmerIT extends ESIntegTestCase {
-
-    @Test
-    public void simpleWarmerTests() {
+    public void testSimpleWarmers() {
         createIndex("test");
         ensureGreen();
 
@@ -99,8 +95,7 @@ public class SimpleIndicesWarmerIT extends ESIntegTestCase {
         assertThat(getWarmersResponse.getWarmers().size(), equalTo(0));
     }
 
-    @Test
-    public void templateWarmer() {
+    public void testTtemplateWarmer() {
         client().admin().indices().preparePutTemplate("template_1")
                 .setSource("{\n" +
                         "    \"template\" : \"*\",\n" +
@@ -129,8 +124,7 @@ public class SimpleIndicesWarmerIT extends ESIntegTestCase {
         client().prepareIndex("test", "type1", "2").setSource("field", "value2").setRefresh(true).execute().actionGet();
     }
 
-    @Test
-    public void createIndexWarmer() {
+    public void testCreateIndexWarmer() {
         assertAcked(prepareCreate("test")
                 .setSource("{\n" +
                         "    \"warmers\" : {\n" +
@@ -154,8 +148,7 @@ public class SimpleIndicesWarmerIT extends ESIntegTestCase {
         client().prepareIndex("test", "type1", "2").setSource("field", "value2").setRefresh(true).execute().actionGet();
     }
 
-    @Test
-    public void deleteNonExistentIndexWarmerTest() {
+    public void testDeleteNonExistentIndexWarmer() {
         createIndex("test");
         try {
             client().admin().indices().prepareDeleteWarmer().setIndices("test").setNames("foo").execute().actionGet();
@@ -165,8 +158,8 @@ public class SimpleIndicesWarmerIT extends ESIntegTestCase {
         }
     }
 
-    @Test // issue 8991
-    public void deleteAllIndexWarmerDoesNotThrowWhenNoWarmers() {
+    // issue 8991
+    public void testDeleteAllIndexWarmerDoesNotThrowWhenNoWarmers() {
         createIndex("test");
         DeleteWarmerResponse deleteWarmerResponse = client().admin().indices().prepareDeleteWarmer()
                 .setIndices("test").setNames("_all").execute().actionGet();
@@ -177,8 +170,7 @@ public class SimpleIndicesWarmerIT extends ESIntegTestCase {
         assertThat(deleteWarmerResponse.isAcknowledged(), equalTo(true));
     }
 
-    @Test
-    public void deleteIndexWarmerTest() {
+    public void testDeleteIndexWarmerTest() {
         createIndex("test");
         ensureGreen();
 
@@ -201,8 +193,8 @@ public class SimpleIndicesWarmerIT extends ESIntegTestCase {
         assertThat(getWarmersResponse.warmers().size(), equalTo(0));
     }
 
-    @Test // issue 3246
-    public void ensureThatIndexWarmersCanBeChangedOnRuntime() throws Exception {
+    // issue 3246
+    public void testEnsureThatIndexWarmersCanBeChangedOnRuntime() throws Exception {
         createIndex("test");
         ensureGreen();
 
@@ -224,8 +216,7 @@ public class SimpleIndicesWarmerIT extends ESIntegTestCase {
         assertThat(getWarmerRuns(), equalTo(warmerRunsAfterDisabling));
     }
 
-    @Test
-    public void gettingAllWarmersUsingAllAndWildcardsShouldWork() throws Exception {
+    public void testGettingAllWarmersUsingAllAndWildcardsShouldWork() throws Exception {
         createIndex("test");
         ensureGreen();
 

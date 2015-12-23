@@ -25,14 +25,15 @@ import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.routing.IndexRoutingTable;
 import org.elasticsearch.cluster.routing.IndexShardRoutingTable;
 import org.elasticsearch.cluster.routing.ShardRouting;
+import org.elasticsearch.cluster.routing.allocation.decider.AwarenessAllocationDecider;
 import org.elasticsearch.common.Priority;
 import org.elasticsearch.common.logging.ESLogger;
 import org.elasticsearch.common.logging.Loggers;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.discovery.zen.ZenDiscovery;
 import org.elasticsearch.discovery.zen.elect.ElectMasterService;
 import org.elasticsearch.test.ESIntegTestCase;
 import org.elasticsearch.test.ESIntegTestCase.ClusterScope;
-import org.junit.Test;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -53,7 +54,6 @@ public class AwarenessAllocationIT extends ESIntegTestCase {
         return 1;
     }
 
-    @Test
     public void testSimpleAwareness() throws Exception {
         Settings commonSettings = Settings.settingsBuilder()
                 .put("cluster.routing.allocation.awareness.attributes", "rack_id")
@@ -102,30 +102,39 @@ public class AwarenessAllocationIT extends ESIntegTestCase {
                 TimeUnit.SECONDS
         ), equalTo(true));
     }
-    
-    @Test
+
     public void testAwarenessZones() throws Exception {
         Settings commonSettings = Settings.settingsBuilder()
-                .put("cluster.routing.allocation.awareness.force.zone.values", "a,b")
-                .put("cluster.routing.allocation.awareness.attributes", "zone")
+                .put(AwarenessAllocationDecider.CLUSTER_ROUTING_ALLOCATION_AWARENESS_FORCE_GROUP_SETTING.getKey() + "zone.values", "a,b")
+                .put(AwarenessAllocationDecider.CLUSTER_ROUTING_ALLOCATION_AWARENESS_ATTRIBUTE_SETTING.getKey(), "zone")
+                .put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES_SETTING.getKey(), 3)
+                .put(ZenDiscovery.SETTING_JOIN_TIMEOUT, "10s")
                 .build();
 
         logger.info("--> starting 4 nodes on different zones");
         List<String> nodes = internalCluster().startNodesAsync(
-                Settings.settingsBuilder().put(commonSettings).put("node.zone", "a").put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES, 3).build(),
-                Settings.settingsBuilder().put(commonSettings).put("node.zone", "b").put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES, 3).build(),
-                Settings.settingsBuilder().put(commonSettings).put("node.zone", "b").put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES, 3).build(),
-                Settings.settingsBuilder().put(commonSettings).put("node.zone", "a").put(ElectMasterService.DISCOVERY_ZEN_MINIMUM_MASTER_NODES, 3).build()
+                Settings.settingsBuilder().put(commonSettings).put("node.zone", "a").build(),
+                Settings.settingsBuilder().put(commonSettings).put("node.zone", "b").build(),
+                Settings.settingsBuilder().put(commonSettings).put("node.zone", "b").build(),
+                Settings.settingsBuilder().put(commonSettings).put("node.zone", "a").build()
         ).get();
         String A_0 = nodes.get(0);
         String B_0 = nodes.get(1);
         String B_1 = nodes.get(2);
         String A_1 = nodes.get(3);
+
+        logger.info("--> waiting for nodes to form a cluster");
+        ClusterHealthResponse health = client().admin().cluster().prepareHealth().setWaitForNodes("4").execute().actionGet();
+        assertThat(health.isTimedOut(), equalTo(false));
+
         client().admin().indices().prepareCreate("test")
         .setSettings(settingsBuilder().put("index.number_of_shards", 5)
                 .put("index.number_of_replicas", 1)).execute().actionGet();
-        ClusterHealthResponse health = client().admin().cluster().prepareHealth().setWaitForEvents(Priority.LANGUID).setWaitForGreenStatus().setWaitForNodes("4").setWaitForRelocatingShards(0).execute().actionGet();
+
+        logger.info("--> waiting for shards to be allocated");
+        health = client().admin().cluster().prepareHealth().setWaitForEvents(Priority.LANGUID).setWaitForGreenStatus().setWaitForRelocatingShards(0).execute().actionGet();
         assertThat(health.isTimedOut(), equalTo(false));
+
         ClusterState clusterState = client().admin().cluster().prepareState().execute().actionGet().getState();
         ObjectIntHashMap<String> counts = new ObjectIntHashMap<>();
 
@@ -141,8 +150,7 @@ public class AwarenessAllocationIT extends ESIntegTestCase {
         assertThat(counts.get(A_0), anyOf(equalTo(2),equalTo(3)));
         assertThat(counts.get(B_0), anyOf(equalTo(2),equalTo(3)));
     }
-    
-    @Test
+
     public void testAwarenessZonesIncrementalNodes() throws Exception {
         Settings commonSettings = Settings.settingsBuilder()
                 .put("cluster.routing.allocation.awareness.force.zone.values", "a,b")
@@ -196,7 +204,7 @@ public class AwarenessAllocationIT extends ESIntegTestCase {
         assertThat(counts.get(A_0), equalTo(5));
         assertThat(counts.get(B_0), equalTo(3));
         assertThat(counts.get(B_1), equalTo(2));
-        
+
         String noZoneNode = internalCluster().startNode();
         health = client().admin().cluster().prepareHealth().setWaitForEvents(Priority.LANGUID).setWaitForGreenStatus().setWaitForNodes("4").execute().actionGet();
         assertThat(health.isTimedOut(), equalTo(false));
@@ -215,7 +223,7 @@ public class AwarenessAllocationIT extends ESIntegTestCase {
                 }
             }
         }
-        
+
         assertThat(counts.get(A_0), equalTo(5));
         assertThat(counts.get(B_0), equalTo(3));
         assertThat(counts.get(B_1), equalTo(2));
@@ -236,7 +244,7 @@ public class AwarenessAllocationIT extends ESIntegTestCase {
                 }
             }
         }
-        
+
         assertThat(counts.get(A_0), equalTo(3));
         assertThat(counts.get(B_0), equalTo(3));
         assertThat(counts.get(B_1), equalTo(2));

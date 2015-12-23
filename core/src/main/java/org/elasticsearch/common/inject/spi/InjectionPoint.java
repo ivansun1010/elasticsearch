@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2008 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +16,6 @@
 
 package org.elasticsearch.common.inject.spi;
 
-import com.google.common.collect.ImmutableSet;
 import org.elasticsearch.common.inject.ConfigurationException;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.inject.Key;
@@ -38,10 +37,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
+import static java.util.Collections.unmodifiableSet;
 import static org.elasticsearch.common.inject.internal.MoreTypes.getRawType;
 
 /**
@@ -187,7 +188,7 @@ public final class InjectionPoint {
         Errors errors = new Errors(rawType);
 
         Constructor<?> injectableConstructor = null;
-        for (Constructor<?> constructor : rawType.getDeclaredConstructors()) {
+        for (Constructor<?> constructor : rawType.getConstructors()) {
             Inject inject = constructor.getAnnotation(Inject.class);
             if (inject != null) {
                 if (inject.optional()) {
@@ -211,7 +212,7 @@ public final class InjectionPoint {
 
         // If no annotated constructor is found, look for a no-arg constructor instead.
         try {
-            Constructor<?> noArgConstructor = rawType.getDeclaredConstructor();
+            Constructor<?> noArgConstructor = rawType.getConstructor();
 
             // Disallow private constructors on non-private classes (unless they have @Inject)
             if (Modifier.isPrivate(noArgConstructor.getModifiers())
@@ -253,13 +254,13 @@ public final class InjectionPoint {
      *                                of the valid injection points.
      */
     public static Set<InjectionPoint> forStaticMethodsAndFields(TypeLiteral type) {
-        List<InjectionPoint> sink = new ArrayList<>();
+        Set<InjectionPoint> result = new HashSet<>();
         Errors errors = new Errors();
 
-        addInjectionPoints(type, Factory.FIELDS, true, sink, errors);
-        addInjectionPoints(type, Factory.METHODS, true, sink, errors);
+        addInjectionPoints(type, Factory.FIELDS, true, result, errors);
+        addInjectionPoints(type, Factory.METHODS, true, result, errors);
 
-        ImmutableSet<InjectionPoint> result = ImmutableSet.copyOf(sink);
+        result = unmodifiableSet(result);
         if (errors.hasErrors()) {
             throw new ConfigurationException(errors.getMessages()).withPartialValue(result);
         }
@@ -293,14 +294,14 @@ public final class InjectionPoint {
      *                                of the valid injection points.
      */
     public static Set<InjectionPoint> forInstanceMethodsAndFields(TypeLiteral<?> type) {
-        List<InjectionPoint> sink = new ArrayList<>();
+        Set<InjectionPoint> result = new HashSet<>();
         Errors errors = new Errors();
 
         // TODO (crazybob): Filter out overridden members.
-        addInjectionPoints(type, Factory.FIELDS, false, sink, errors);
-        addInjectionPoints(type, Factory.METHODS, false, sink, errors);
+        addInjectionPoints(type, Factory.FIELDS, false, result, errors);
+        addInjectionPoints(type, Factory.METHODS, false, result, errors);
 
-        ImmutableSet<InjectionPoint> result = ImmutableSet.copyOf(sink);
+        result = unmodifiableSet(result);
         if (errors.hasErrors()) {
             throw new ConfigurationException(errors.getMessages()).withPartialValue(result);
         }
@@ -333,7 +334,7 @@ public final class InjectionPoint {
         // name. In Scala, fields always get accessor methods (that we need to ignore). See bug 242.
         if (member instanceof Method) {
             try {
-                if (member.getDeclaringClass().getDeclaredField(member.getName()) != null) {
+                if (member.getDeclaringClass().getField(member.getName()) != null) {
                     return;
                 }
             } catch (NoSuchFieldException ignore) {
@@ -389,7 +390,7 @@ public final class InjectionPoint {
         Factory<Field> FIELDS = new Factory<Field>() {
             @Override
             public Field[] getMembers(Class<?> type) {
-                return type.getDeclaredFields();
+                return type.getFields();
             }
 
             @Override
@@ -401,7 +402,7 @@ public final class InjectionPoint {
         Factory<Method> METHODS = new Factory<Method>() {
             @Override
             public Method[] getMembers(Class<?> type) {
-                return type.getDeclaredMethods();
+                return type.getMethods();
             }
 
             @Override

@@ -19,7 +19,6 @@
 
 package org.elasticsearch.test.geo;
 
-import com.carrotsearch.randomizedtesting.RandomizedTest;
 import com.carrotsearch.randomizedtesting.generators.RandomInts;
 import com.spatial4j.core.context.jts.JtsSpatialContext;
 import com.spatial4j.core.distance.DistanceUtils;
@@ -31,7 +30,6 @@ import com.vividsolutions.jts.algorithm.ConvexHull;
 import com.vividsolutions.jts.geom.Coordinate;
 import com.vividsolutions.jts.geom.Geometry;
 import org.elasticsearch.ElasticsearchException;
-import org.elasticsearch.common.geo.builders.BaseLineStringBuilder;
 import org.elasticsearch.common.geo.builders.GeometryCollectionBuilder;
 import org.elasticsearch.common.geo.builders.LineStringBuilder;
 import org.elasticsearch.common.geo.builders.MultiLineStringBuilder;
@@ -40,15 +38,18 @@ import org.elasticsearch.common.geo.builders.PointBuilder;
 import org.elasticsearch.common.geo.builders.PointCollection;
 import org.elasticsearch.common.geo.builders.PolygonBuilder;
 import org.elasticsearch.common.geo.builders.ShapeBuilder;
+import org.elasticsearch.search.geo.GeoShapeQueryTests;
+import org.junit.Assert;
 
 import java.util.Random;
 
 import static com.spatial4j.core.shape.SpatialRelation.CONTAINS;
 
 /**
- * Random geoshape generation utilities for randomized Geospatial testing
+ * Random geoshape generation utilities for randomized {@code geo_shape} type testing
+ * depends on jts and spatial4j
  */
-public class RandomShapeGenerator {
+public class RandomShapeGenerator extends RandomGeoGenerator {
 
     protected static JtsSpatialContext ctx = ShapeBuilder.SPATIAL_CONTEXT;
     protected static final double xDIVISIBLE = 2;
@@ -61,6 +62,14 @@ public class RandomShapeGenerator {
         public static ShapeType randomType(Random r) {
             return types[RandomInts.randomIntBetween(r, 0, types.length - 1)];
         }
+    }
+
+    public static ShapeBuilder createShape(Random r) throws InvalidShapeException {
+        return createShapeNear(r, null);
+    }
+
+    public static ShapeBuilder createShape(Random r, ShapeType st) {
+        return createShapeNear(r, null, st);
     }
 
     public static ShapeBuilder createShapeNear(Random r, Point nearPoint) throws InvalidShapeException {
@@ -131,13 +140,21 @@ public class RandomShapeGenerator {
     }
 
     private static ShapeBuilder createShape(Random r, Point nearPoint, Rectangle within, ShapeType st) throws InvalidShapeException {
-        return createShape(r, nearPoint, within, st, ST_VALIDATE);
+        ShapeBuilder shape;
+        short i=0;
+        do {
+            shape = createShape(r, nearPoint, within, st, ST_VALIDATE);
+            if (shape != null) {
+                return shape;
+            }
+        } while (++i != 100);
+        throw new InvalidShapeException("Unable to create a valid random shape with provided seed");
     }
 
     /**
      * Creates a random shape useful for randomized testing, NOTE: exercise caution when using this to build random GeometryCollections
      * as creating a large random number of random shapes can result in massive resource consumption
-     * see: {@link org.elasticsearch.search.geo.GeoShapeIntegrationTests#testShapeFilterWithRandomGeoCollection}
+     * see: {@link GeoShapeQueryTests#testShapeFilterWithRandomGeoCollection}
      *
      * The following options are included
      * @param nearPoint Create a shape near a provided point
@@ -179,7 +196,7 @@ public class RandomShapeGenerator {
             case MULTILINESTRING:
                 MultiLineStringBuilder mlsb = new MultiLineStringBuilder();
                 for (int i=0; i<RandomInts.randomIntBetween(r, 1, 10); ++i) {
-                    mlsb.linestring((BaseLineStringBuilder) createShape(r, nearPoint, within, ShapeType.LINESTRING, false));
+                    mlsb.linestring((LineStringBuilder) createShape(r, nearPoint, within, ShapeType.LINESTRING, false));
                 }
                 return mlsb;
             case POLYGON:
@@ -210,8 +227,14 @@ public class RandomShapeGenerator {
                     // The validate flag will check for these possibilities and bail if an incorrect geometry is created
                     try {
                         pgb.build();
-                    } catch (InvalidShapeException e) {
-                        return null;
+                    } catch (Throwable e) {
+                        // jts bug may occasionally misinterpret coordinate order causing an unhelpful ('geom' assertion)
+                        // or InvalidShapeException
+                        if (e instanceof InvalidShapeException || e instanceof AssertionError) {
+                            return null;
+                        }
+                        // throw any other exception
+                        throw e;
                     }
                 }
                 return pgb;
@@ -220,21 +243,19 @@ public class RandomShapeGenerator {
         }
     }
 
-    protected static Point xRandomPoint(Random r) {
+    public static Point xRandomPoint(Random r) {
         return xRandomPointIn(r, ctx.getWorldBounds());
     }
 
     protected static Point xRandomPointIn(Random rand, Rectangle r) {
-        double x = r.getMinX() + rand.nextDouble()*r.getWidth();
-        double y = r.getMinY() + rand.nextDouble()*r.getHeight();
-        x = xNormX(x);
-        y = xNormY(y);
-        Point p = ctx.makePoint(x,y);
-        RandomizedTest.assertEquals(CONTAINS, r.relate(p));
+        double[] pt = new double[2];
+        randomPointIn(rand, r.getMinX(), r.getMinY(), r.getMaxX(), r.getMaxY(), pt);
+        Point p = ctx.makePoint(pt[0], pt[1]);
+        Assert.assertEquals(CONTAINS, r.relate(p));
         return p;
     }
 
-    protected static Rectangle xRandomRectangle(Random r, Point nearP) {
+    public static Rectangle xRandomRectangle(Random r, Point nearP) {
         Rectangle bounds = ctx.getWorldBounds();
         if (nearP == null)
             nearP = xRandomPointIn(r, bounds);
@@ -291,13 +312,5 @@ public class RandomShapeGenerator {
             maxY = t;
         }
         return ctx.makeRectangle(minX, maxX, minY, maxY);
-    }
-
-    protected static double xNormX(double x) {
-        return ctx.isGeo() ? DistanceUtils.normLonDEG(x) : x;
-    }
-
-    protected static double xNormY(double y) {
-        return ctx.isGeo() ? DistanceUtils.normLatDEG(y) : y;
     }
 }

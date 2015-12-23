@@ -19,9 +19,19 @@
 
 package org.elasticsearch.script.javascript.support;
 
-import org.mozilla.javascript.*;
+import org.mozilla.javascript.Context;
+import org.mozilla.javascript.IdScriptableObject;
+import org.mozilla.javascript.NativeArray;
+import org.mozilla.javascript.ScriptRuntime;
+import org.mozilla.javascript.Scriptable;
+import org.mozilla.javascript.Wrapper;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Value Converter to marshal objects between Java and Javascript.
@@ -41,7 +51,7 @@ public final class ScriptValueConverter {
     /**
      * Convert an object from a script wrapper value to a serializable value valid outside
      * of the Rhino script processor context.
-     * <p/>
+     * <p>
      * This includes converting JavaScript Array objects to Lists of valid objects.
      *
      * @param value Value to convert from script wrapper object to external object value.

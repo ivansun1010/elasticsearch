@@ -24,7 +24,6 @@ import org.elasticsearch.action.support.nodes.BaseNodesResponse;
 import org.elasticsearch.cluster.ClusterChangedEvent;
 import org.elasticsearch.cluster.ClusterService;
 import org.elasticsearch.cluster.ClusterStateListener;
-import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.routing.RoutingNodes;
 import org.elasticsearch.cluster.routing.RoutingService;
@@ -113,25 +112,14 @@ public class GatewayAllocator extends AbstractComponent {
     }
 
     public boolean allocateUnassigned(final RoutingAllocation allocation) {
-        // Take a snapshot of the current time and tell the RoutingService
-        // about it, so it will use a consistent timestamp for delays
-        long lastAllocateUnassignedRun = System.currentTimeMillis();
-        this.routingService.setUnassignedShardsAllocatedTimestamp(lastAllocateUnassignedRun);
         boolean changed = false;
 
         RoutingNodes.UnassignedShards unassigned = allocation.routingNodes().unassigned();
-        unassigned.sort(new PriorityComparator() {
-
-            @Override
-            protected Settings getIndexSettings(String index) {
-                IndexMetaData indexMetaData = allocation.metaData().index(index);
-                return indexMetaData.getSettings();
-            }
-        }); // sort for priority ordering
+        unassigned.sort(PriorityComparator.getAllocationComparator(allocation)); // sort for priority ordering
 
         changed |= primaryShardAllocator.allocateUnassigned(allocation);
         changed |= replicaShardAllocator.processExistingRecoveries(allocation);
-        changed |= replicaShardAllocator.allocateUnassigned(allocation, lastAllocateUnassignedRun);
+        changed |= replicaShardAllocator.allocateUnassigned(allocation);
         return changed;
     }
 

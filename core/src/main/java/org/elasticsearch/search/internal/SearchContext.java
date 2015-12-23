@@ -18,9 +18,6 @@
  */
 package org.elasticsearch.search.internal;
 
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.MultimapBuilder;
 
 import org.apache.lucene.search.Collector;
 import org.apache.lucene.search.Query;
@@ -35,15 +32,15 @@ import org.elasticsearch.common.ParseFieldMatcher;
 import org.elasticsearch.common.lease.Releasable;
 import org.elasticsearch.common.lease.Releasables;
 import org.elasticsearch.common.util.BigArrays;
+import org.elasticsearch.common.util.iterable.Iterables;
 import org.elasticsearch.index.analysis.AnalysisService;
 import org.elasticsearch.index.cache.bitset.BitsetFilterCache;
 import org.elasticsearch.index.fielddata.IndexFieldDataService;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.index.mapper.object.ObjectMapper;
-import org.elasticsearch.index.query.IndexQueryParserService;
 import org.elasticsearch.index.query.ParsedQuery;
-import org.elasticsearch.index.query.QueryParseContext;
+import org.elasticsearch.index.query.QueryShardContext;
 import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.index.similarity.SimilarityService;
 import org.elasticsearch.script.ScriptService;
@@ -58,13 +55,13 @@ import org.elasticsearch.search.fetch.script.ScriptFieldsContext;
 import org.elasticsearch.search.fetch.source.FetchSourceContext;
 import org.elasticsearch.search.highlight.SearchContextHighlight;
 import org.elasticsearch.search.lookup.SearchLookup;
+import org.elasticsearch.search.profile.Profilers;
 import org.elasticsearch.search.query.QuerySearchResult;
 import org.elasticsearch.search.rescore.RescoreSearchContext;
-import org.elasticsearch.search.scan.ScanContext;
 import org.elasticsearch.search.suggest.SuggestionSearchContext;
 
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -76,19 +73,19 @@ public abstract class SearchContext extends DelegatingHasContextAndHeaders imple
 
     public static void setCurrent(SearchContext value) {
         current.set(value);
-        QueryParseContext.setTypes(value.types());
+        QueryShardContext.setTypes(value.types());
     }
 
     public static void removeCurrent() {
         current.remove();
-        QueryParseContext.removeTypes();
+        QueryShardContext.removeTypes();
     }
 
     public static SearchContext current() {
         return current.get();
     }
 
-    private Multimap<Lifetime, Releasable> clearables = null;
+    private Map<Lifetime, List<Releasable>> clearables = null;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     protected final ParseFieldMatcher parseFieldMatcher;
@@ -211,8 +208,6 @@ public abstract class SearchContext extends DelegatingHasContextAndHeaders imple
 
     public abstract AnalysisService analysisService();
 
-    public abstract IndexQueryParserService queryParserService();
-
     public abstract SimilarityService similarityService();
 
     public abstract ScriptService scriptService();
@@ -312,37 +307,46 @@ public abstract class SearchContext extends DelegatingHasContextAndHeaders imple
     public abstract FetchSearchResult fetchResult();
 
     /**
+     * Return a handle over the profilers for the current search request, or {@code null} if profiling is not enabled.
+     */
+    public abstract Profilers getProfilers();
+
+    /**
      * Schedule the release of a resource. The time when {@link Releasable#close()} will be called on this object
      * is function of the provided {@link Lifetime}.
      */
     public void addReleasable(Releasable releasable, Lifetime lifetime) {
         if (clearables == null) {
-            clearables = MultimapBuilder.enumKeys(Lifetime.class).arrayListValues().build();
+            clearables = new HashMap<>();
         }
-        clearables.put(lifetime, releasable);
+        List<Releasable> releasables = clearables.get(lifetime);
+        if (releasables == null) {
+            releasables = new ArrayList<>();
+            clearables.put(lifetime, releasables);
+        }
+        releasables.add(releasable);
     }
 
     public void clearReleasables(Lifetime lifetime) {
         if (clearables != null) {
-            List<Collection<Releasable>> releasables = new ArrayList<>();
+            List<List<Releasable>>releasables = new ArrayList<>();
             for (Lifetime lc : Lifetime.values()) {
                 if (lc.compareTo(lifetime) > 0) {
                     break;
                 }
-                releasables.add(clearables.removeAll(lc));
+                List<Releasable> remove = clearables.remove(lc);
+                if (remove != null) {
+                    releasables.add(remove);
+                }
             }
-            Releasables.close(Iterables.concat(releasables));
+            Releasables.close(Iterables.flatten(releasables));
         }
     }
-
-    public abstract ScanContext scanContext();
-
-    public abstract MappedFieldType smartNameFieldType(String name);
 
     /**
      * Looks up the given field, but does not restrict to fields in the types set on this context.
      */
-    public abstract MappedFieldType smartNameFieldTypeFromAnyType(String name);
+    public abstract MappedFieldType smartNameFieldType(String name);
 
     public abstract ObjectMapper getObjectMapper(String name);
 
@@ -368,4 +372,5 @@ public abstract class SearchContext extends DelegatingHasContextAndHeaders imple
          */
         CONTEXT
     }
+
 }

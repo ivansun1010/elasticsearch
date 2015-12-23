@@ -32,7 +32,11 @@ import org.elasticsearch.search.aggregations.pipeline.movavg.MovAvgParser;
 
 import java.io.IOException;
 import java.text.ParseException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Calculate a triple exponential weighted moving average
@@ -134,7 +138,6 @@ public class HoltWintersModel extends MovAvgModel {
          *
          * @param in  the input stream
          * @return    SeasonalityType Enum
-         * @throws IOException
          */
         public static SeasonalityType readFrom(StreamInput in) throws IOException {
             byte id = in.readByte();

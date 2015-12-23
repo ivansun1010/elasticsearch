@@ -18,7 +18,6 @@
  */
 package org.elasticsearch.search.highlight;
 
-import com.google.common.collect.ImmutableSet;
 import org.apache.lucene.search.highlight.DefaultEncoder;
 import org.apache.lucene.search.highlight.Encoder;
 import org.apache.lucene.search.highlight.SimpleHTMLEncoder;
@@ -31,6 +30,8 @@ import org.elasticsearch.search.lookup.SourceLookup;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+
+import static java.util.Collections.singleton;
 
 public final class HighlightUtils {
 
@@ -47,9 +48,9 @@ public final class HighlightUtils {
         boolean forceSource = searchContext.highlight().forceSource(field);
         List<Object> textsToHighlight;
         if (!forceSource && mapper.fieldType().stored()) {
-            CustomFieldsVisitor fieldVisitor = new CustomFieldsVisitor(ImmutableSet.of(mapper.fieldType().names().indexName()), false);
+            CustomFieldsVisitor fieldVisitor = new CustomFieldsVisitor(singleton(mapper.fieldType().name()), false);
             hitContext.reader().document(hitContext.docId(), fieldVisitor);
-            textsToHighlight = fieldVisitor.fields().get(mapper.fieldType().names().indexName());
+            textsToHighlight = fieldVisitor.fields().get(mapper.fieldType().name());
             if (textsToHighlight == null) {
                 // Can happen if the document doesn't have the field to highlight
                 textsToHighlight = Collections.emptyList();
@@ -57,7 +58,7 @@ public final class HighlightUtils {
         } else {
             SourceLookup sourceLookup = searchContext.lookup().source();
             sourceLookup.setSegmentAndDocument(hitContext.readerContext(), hitContext.docId());
-            textsToHighlight = sourceLookup.extractRawValues(hitContext.getSourcePath(mapper.fieldType().names().fullName()));
+            textsToHighlight = sourceLookup.extractRawValues(hitContext.getSourcePath(mapper.fieldType().name()));
         }
         assert textsToHighlight != null;
         return textsToHighlight;

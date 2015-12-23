@@ -45,6 +45,15 @@ which returns:
 }
 -----------------------------------
 
+Information about multiple repositories can be fetched in one go by using a comma-delimited list of repository names.
+Star wildcards are supported as well. For example, information about repositories that start with `repo` or that contain `backup`
+can be obtained using the following command:
+
+[source,js]
+-----------------------------------
+GET /_snapshot/repo*,*backup*
+-----------------------------------
+
 If a repository name is not specified, or `_all` is used as repository name Elasticsearch will return information about
 all repositories currently registered in the cluster:
 
@@ -121,7 +130,7 @@ The following settings are supported:
  using size value notation, i.e. 1g, 10m, 5k. Defaults to `null` (unlimited chunk size).
 `max_restore_bytes_per_sec`:: Throttles per node restore rate. Defaults to `40mb` per second.
 `max_snapshot_bytes_per_sec`:: Throttles per node snapshot rate. Defaults to `40mb` per second.
-`readonly`:: Makes repository read-only. coming[2.1.0]  Defaults to `false`.
+`readonly`:: Makes repository read-only.  Defaults to `false`.
 
 [float]
 ===== Read-only URL Repository
@@ -142,7 +151,7 @@ This setting supports wildcards in the place of host, path, query, and fragment.
 repositories.url.allowed_urls: ["http://www.example.org/root/*", "https://*.mydomain.com/*?*#*"]
 -----------------------------------
 
-URL repositories with `file:` URLs can only point to locations registered in the `path.repo` setting similiar to
+URL repositories with `file:` URLs can only point to locations registered in the `path.repo` setting similar to
 shared file system repository.
 
 [float]
@@ -152,7 +161,7 @@ Other repository backends are available in these official plugins:
 
 * {plugins}/repository-s3.html[repository-s3] for S3 repository support
 * https://github.com/elasticsearch/elasticsearch-hadoop/tree/master/repository-hdfs[HDFS Plugin] for Hadoop environments
-* https://github.com/elasticsearch/elasticsearch-cloud-azure#azure-repository[Azure Cloud Plugin] for Azure storage repositories
+* {plugins}/repository-azure.html[repository-azure] for Azure storage repositories
 
 [float]
 ===== Repository Verification
@@ -251,6 +260,14 @@ GET /_snapshot/my_backup/snapshot_1
 -----------------------------------
 // AUTOSENSE
 
+Similar as for repositories, information about multiple snapshots can be queried in one go, supporting wildcards as well:
+
+[source,sh]
+-----------------------------------
+GET /_snapshot/my_backup/snapshot_*,some_other_snapshot
+-----------------------------------
+// AUTOSENSE
+
 All snapshots currently stored in the repository can be listed using the following command:
 
 [source,sh]
@@ -259,7 +276,10 @@ GET /_snapshot/my_backup/_all
 -----------------------------------
 // AUTOSENSE
 
-coming[2.0.0-beta1] A currently running snapshot can be retrieved using the following command:
+The command fails if some of the snapshots are unavailable. The boolean parameter `ignore_unvailable` can be used to
+return all snapshots that are currently available.
+
+A currently running snapshot can be retrieved using the following command:
 
 [source,sh]
 -----------------------------------

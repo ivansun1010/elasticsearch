@@ -19,6 +19,7 @@
 
 package org.elasticsearch.plugin.discovery.multicast;
 
+import org.apache.lucene.util.Constants;
 import org.elasticsearch.Version;
 import org.elasticsearch.cluster.ClusterName;
 import org.elasticsearch.cluster.node.DiscoveryNode;
@@ -39,7 +40,6 @@ import org.elasticsearch.transport.TransportService;
 import org.elasticsearch.transport.local.LocalTransport;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
-import org.junit.Test;
 
 import java.net.DatagramPacket;
 import java.net.InetAddress;
@@ -58,8 +58,8 @@ public class MulticastZenPingTests extends ESTestCase {
         return builder.build();
     }
 
-    @Test
     public void testSimplePings() throws InterruptedException {
+        assumeTrue("https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=193246", Constants.FREE_BSD == false);
         Settings settings = Settings.EMPTY;
         settings = buildRandomMulticast(settings);
         Thread.sleep(30000);
@@ -132,8 +132,16 @@ public class MulticastZenPingTests extends ESTestCase {
         }
     }
 
-    @Test @SuppressForbidden(reason = "I bind to wildcard addresses. I am a total nightmare")
+    // This test is here because when running on FreeBSD, if no tests are
+    // executed for the 'multicast' project it will assume everything
+    // failed, so we need to have at least one test that runs.
+    public void testAlwaysRun() throws Exception {
+        assertTrue(true);
+    }
+
+    @SuppressForbidden(reason = "I bind to wildcard addresses. I am a total nightmare")
     public void testExternalPing() throws Exception {
+        assumeTrue("https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=193246", Constants.FREE_BSD == false);
         Settings settings = Settings.EMPTY;
         settings = buildRandomMulticast(settings);
 
@@ -164,7 +172,7 @@ public class MulticastZenPingTests extends ESTestCase {
         MulticastSocket multicastSocket = null;
         try {
             Loggers.getLogger(MulticastZenPing.class).setLevel("TRACE");
-            multicastSocket = new MulticastSocket(54328);
+            multicastSocket = new MulticastSocket();
             multicastSocket.setReceiveBufferSize(2048);
             multicastSocket.setSendBufferSize(2048);
             multicastSocket.setSoTimeout(60000);

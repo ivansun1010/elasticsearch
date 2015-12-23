@@ -21,7 +21,6 @@ package org.elasticsearch.search.aggregations.metrics.scripted;
 
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.script.Script;
-import org.elasticsearch.script.ScriptParameterParser;
 import org.elasticsearch.search.aggregations.metrics.MetricsAggregationBuilder;
 
 import java.io.IOException;
@@ -30,7 +29,7 @@ import java.util.Map;
 /**
  * Builder for the {@link ScriptedMetric} aggregation.
  */
-public class ScriptedMetricBuilder extends MetricsAggregationBuilder {
+public class ScriptedMetricBuilder extends MetricsAggregationBuilder<ScriptedMetricBuilder> {
 
     private Script initScript = null;
     private Script mapScript = null;

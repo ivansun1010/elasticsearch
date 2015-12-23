@@ -26,7 +26,6 @@ import org.elasticsearch.action.admin.indices.analyze.AnalyzeResponse;
 import org.elasticsearch.indices.analysis.PreBuiltAnalyzers;
 import org.elasticsearch.test.ESBackcompatTestCase;
 import org.elasticsearch.test.ESIntegTestCase;
-import org.junit.Test;
 
 import java.io.IOException;
 import java.util.List;
@@ -48,10 +47,8 @@ public class BasicAnalysisBackwardCompatibilityIT extends ESBackcompatTestCase {
      * Simple upgrade test for analyzers to make sure they analyze to the same tokens after upgrade
      * TODO we need this for random tokenizers / tokenfilters as well
      */
-    @Test
     public void testAnalyzerTokensAfterUpgrade() throws IOException, ExecutionException, InterruptedException {
         int numFields = randomIntBetween(PreBuiltAnalyzers.values().length, PreBuiltAnalyzers.values().length * 10);
-        StringBuilder builder = new StringBuilder();
         String[] fields = new String[numFields * 2];
         int fieldId = 0;
         for (int i = 0; i < fields.length; i++) {
@@ -60,7 +57,7 @@ public class BasicAnalysisBackwardCompatibilityIT extends ESBackcompatTestCase {
             fields[i] = "type=string,analyzer=" + analyzer;
         }
         assertAcked(prepareCreate("test")
-                .addMapping("type", fields)
+                .addMapping("type", (Object[])fields)
                 .setSettings(indexSettings()));
         ensureYellow();
         InputOutput[] inout = new InputOutput[numFields];

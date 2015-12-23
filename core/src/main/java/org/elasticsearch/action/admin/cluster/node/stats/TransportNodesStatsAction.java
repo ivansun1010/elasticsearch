@@ -50,7 +50,7 @@ public class TransportNodesStatsAction extends TransportNodesAction<NodesStatsRe
                                      ClusterService clusterService, TransportService transportService,
                                      NodeService nodeService, ActionFilters actionFilters, IndexNameExpressionResolver indexNameExpressionResolver) {
         super(settings, NodesStatsAction.NAME, clusterName, threadPool, clusterService, transportService, actionFilters, indexNameExpressionResolver,
-                NodesStatsRequest.class, NodeStatsRequest.class, ThreadPool.Names.MANAGEMENT);
+                NodesStatsRequest::new, NodeStatsRequest::new, ThreadPool.Names.MANAGEMENT);
         this.nodeService = nodeService;
     }
 
@@ -80,7 +80,7 @@ public class TransportNodesStatsAction extends TransportNodesAction<NodesStatsRe
     protected NodeStats nodeOperation(NodeStatsRequest nodeStatsRequest) {
         NodesStatsRequest request = nodeStatsRequest.request;
         return nodeService.stats(request.indices(), request.os(), request.process(), request.jvm(), request.threadPool(),
-                request.fs(), request.transport(), request.http(), request.breaker(), request.script());
+                request.fs(), request.transport(), request.http(), request.breaker(), request.script(), request.discovery());
     }
 
     @Override
@@ -88,11 +88,11 @@ public class TransportNodesStatsAction extends TransportNodesAction<NodesStatsRe
         return false;
     }
 
-    static class NodeStatsRequest extends BaseNodeRequest {
+    public static class NodeStatsRequest extends BaseNodeRequest {
 
         NodesStatsRequest request;
 
-        NodeStatsRequest() {
+        public NodeStatsRequest() {
         }
 
         NodeStatsRequest(String nodeId, NodesStatsRequest request) {

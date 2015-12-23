@@ -30,12 +30,20 @@ import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
+import org.elasticsearch.common.collect.ImmutableOpenMap;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.threadpool.ThreadPool;
-import org.elasticsearch.transport.*;
+import org.elasticsearch.transport.BaseTransportResponseHandler;
+import org.elasticsearch.transport.NodeShouldNotConnectException;
+import org.elasticsearch.transport.TransportChannel;
+import org.elasticsearch.transport.TransportException;
+import org.elasticsearch.transport.TransportRequestHandler;
+import org.elasticsearch.transport.TransportRequestOptions;
+import org.elasticsearch.transport.TransportService;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.util.function.Supplier;
 
 /**
  *
@@ -50,7 +58,7 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
 
     protected TransportNodesAction(Settings settings, String actionName, ClusterName clusterName, ThreadPool threadPool,
                                    ClusterService clusterService, TransportService transportService, ActionFilters actionFilters,
-                                   IndexNameExpressionResolver indexNameExpressionResolver, Class<NodesRequest> request, Class<NodeRequest> nodeRequest,
+                                   IndexNameExpressionResolver indexNameExpressionResolver, Supplier<NodesRequest> request, Supplier<NodeRequest> nodeRequest,
                                    String nodeExecutor) {
         super(settings, actionName, threadPool, transportService, actionFilters, indexNameExpressionResolver, request);
         this.clusterName = clusterName;
@@ -94,17 +102,22 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
 
         private final NodesRequest request;
         private final String[] nodesIds;
+        private final DiscoveryNode[] nodes;
         private final ActionListener<NodesResponse> listener;
-        private final ClusterState clusterState;
         private final AtomicReferenceArray<Object> responses;
         private final AtomicInteger counter = new AtomicInteger();
 
         private AsyncAction(NodesRequest request, ActionListener<NodesResponse> listener) {
             this.request = request;
             this.listener = listener;
-            clusterState = clusterService.state();
+            ClusterState clusterState = clusterService.state();
             String[] nodesIds = resolveNodes(request, clusterState);
             this.nodesIds = filterNodeIds(clusterState.nodes(), nodesIds);
+            ImmutableOpenMap<String, DiscoveryNode> nodes = clusterState.nodes().nodes();
+            this.nodes = new DiscoveryNode[nodesIds.length];
+            for (int i = 0; i < nodesIds.length; i++) {
+                this.nodes[i] = nodes.get(nodesIds[i]);
+            }
             this.responses = new AtomicReferenceArray<>(this.nodesIds.length);
         }
 
@@ -119,15 +132,15 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
                 });
                 return;
             }
-            TransportRequestOptions transportRequestOptions = TransportRequestOptions.options();
+            TransportRequestOptions.Builder builder = TransportRequestOptions.builder();
             if (request.timeout() != null) {
-                transportRequestOptions.withTimeout(request.timeout());
+                builder.withTimeout(request.timeout());
             }
-            transportRequestOptions.withCompress(transportCompress());
+            builder.withCompress(transportCompress());
             for (int i = 0; i < nodesIds.length; i++) {
                 final String nodeId = nodesIds[i];
                 final int idx = i;
-                final DiscoveryNode node = clusterState.nodes().nodes().get(nodeId);
+                final DiscoveryNode node = nodes[i];
                 try {
                     if (node == null) {
                         onFailure(idx, nodeId, new NoSuchNodeException(nodeId));
@@ -138,7 +151,7 @@ public abstract class TransportNodesAction<NodesRequest extends BaseNodesRequest
                         onFailure(idx, nodeId, new NodeShouldNotConnectException(clusterService.localNode(), node));
                     } else {
                         NodeRequest nodeRequest = newNodeRequest(nodeId, request);
-                        transportService.sendRequest(node, transportNodeAction, nodeRequest, transportRequestOptions, new BaseTransportResponseHandler<NodeResponse>() {
+                        transportService.sendRequest(node, transportNodeAction, nodeRequest, builder.build(), new BaseTransportResponseHandler<NodeResponse>() {
                             @Override
                             public NodeResponse newInstance() {
                                 return newNodeResponse();

@@ -18,16 +18,22 @@
  */
 package org.elasticsearch.search.highlight;
 
-import com.google.common.collect.Maps;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.analysis.tokenattributes.OffsetAttribute;
-import org.apache.lucene.search.highlight.*;
+import org.apache.lucene.search.highlight.Encoder;
+import org.apache.lucene.search.highlight.Formatter;
+import org.apache.lucene.search.highlight.Fragmenter;
+import org.apache.lucene.search.highlight.NullFragmenter;
+import org.apache.lucene.search.highlight.QueryScorer;
+import org.apache.lucene.search.highlight.SimpleFragmenter;
+import org.apache.lucene.search.highlight.SimpleHTMLFormatter;
+import org.apache.lucene.search.highlight.SimpleSpanFragmenter;
+import org.apache.lucene.search.highlight.TextFragment;
 import org.apache.lucene.util.BytesRefHash;
 import org.apache.lucene.util.CollectionUtil;
 import org.elasticsearch.ExceptionsHelper;
-import org.elasticsearch.common.text.StringText;
 import org.elasticsearch.common.text.Text;
 import org.elasticsearch.index.mapper.FieldMapper;
 import org.elasticsearch.search.fetch.FetchPhaseExecutionException;
@@ -37,6 +43,7 @@ import org.elasticsearch.search.internal.SearchContext;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -57,7 +64,7 @@ public class PlainHighlighter implements Highlighter {
         Encoder encoder = field.fieldOptions().encoder().equals("html") ? HighlightUtils.Encoders.HTML : HighlightUtils.Encoders.DEFAULT;
 
         if (!hitContext.cache().containsKey(CACHE_KEY)) {
-            Map<FieldMapper, org.apache.lucene.search.highlight.Highlighter> mappers = Maps.newHashMap();
+            Map<FieldMapper, org.apache.lucene.search.highlight.Highlighter> mappers = new HashMap<>();
             hitContext.cache().put(CACHE_KEY, mappers);
         }
         @SuppressWarnings("unchecked")
@@ -65,7 +72,7 @@ public class PlainHighlighter implements Highlighter {
 
         org.apache.lucene.search.highlight.Highlighter entry = cache.get(mapper);
         if (entry == null) {
-            QueryScorer queryScorer = new CustomQueryScorer(highlighterContext.query, field.fieldOptions().requireFieldMatch() ? mapper.fieldType().names().indexName() : null);
+            QueryScorer queryScorer = new CustomQueryScorer(highlighterContext.query, field.fieldOptions().requireFieldMatch() ? mapper.fieldType().name() : null);
             queryScorer.setExpandMultiTermQuery(true);
             Fragmenter fragmenter;
             if (field.fieldOptions().numberOfFragments() == 0) {
@@ -101,15 +108,16 @@ public class PlainHighlighter implements Highlighter {
             for (Object textToHighlight : textsToHighlight) {
                 String text = textToHighlight.toString();
 
-                TokenStream tokenStream = analyzer.tokenStream(mapper.fieldType().names().indexName(), text);
-                if (!tokenStream.hasAttribute(CharTermAttribute.class) || !tokenStream.hasAttribute(OffsetAttribute.class)) {
-                    // can't perform highlighting if the stream has no terms (binary token stream) or no offsets
-                    continue;
-                }
-                TextFragment[] bestTextFragments = entry.getBestTextFragments(tokenStream, text, false, numberOfFragments);
-                for (TextFragment bestTextFragment : bestTextFragments) {
-                    if (bestTextFragment != null && bestTextFragment.getScore() > 0) {
-                        fragsList.add(bestTextFragment);
+                try (TokenStream tokenStream = analyzer.tokenStream(mapper.fieldType().name(), text)) {
+                    if (!tokenStream.hasAttribute(CharTermAttribute.class) || !tokenStream.hasAttribute(OffsetAttribute.class)) {
+                        // can't perform highlighting if the stream has no terms (binary token stream) or no offsets
+                        continue;
+                    }
+                    TextFragment[] bestTextFragments = entry.getBestTextFragments(tokenStream, text, false, numberOfFragments);
+                    for (TextFragment bestTextFragment : bestTextFragments) {
+                        if (bestTextFragment != null && bestTextFragment.getScore() > 0) {
+                            fragsList.add(bestTextFragment);
+                        }
                     }
                 }
             }
@@ -148,7 +156,7 @@ public class PlainHighlighter implements Highlighter {
         }
 
         if (fragments.length > 0) {
-            return new HighlightField(highlighterContext.fieldName, StringText.convertFromStringArray(fragments));
+            return new HighlightField(highlighterContext.fieldName, Text.convertFromStringArray(fragments));
         }
 
         int noMatchSize = highlighterContext.field.fieldOptions().noMatchSize();
@@ -157,12 +165,12 @@ public class PlainHighlighter implements Highlighter {
             String fieldContents = textsToHighlight.get(0).toString();
             int end;
             try {
-                end = findGoodEndForNoHighlightExcerpt(noMatchSize, analyzer.tokenStream(mapper.fieldType().names().indexName(), fieldContents));
+                end = findGoodEndForNoHighlightExcerpt(noMatchSize, analyzer, mapper.fieldType().name(), fieldContents);
             } catch (Exception e) {
                 throw new FetchPhaseExecutionException(context, "Failed to highlight field [" + highlighterContext.fieldName + "]", e);
             }
             if (end > 0) {
-                return new HighlightField(highlighterContext.fieldName, new Text[] { new StringText(fieldContents.substring(0, end)) });
+                return new HighlightField(highlighterContext.fieldName, new Text[] { new Text(fieldContents.substring(0, end)) });
             }
         }
         return null;
@@ -173,8 +181,8 @@ public class PlainHighlighter implements Highlighter {
         return true;
     }
 
-    private static int findGoodEndForNoHighlightExcerpt(int noMatchSize, TokenStream tokenStream) throws IOException {
-        try {
+    private static int findGoodEndForNoHighlightExcerpt(int noMatchSize, Analyzer analyzer, String fieldName, String contents) throws IOException {
+        try (TokenStream tokenStream = analyzer.tokenStream(fieldName, contents)) {
             if (!tokenStream.hasAttribute(OffsetAttribute.class)) {
                 // Can't split on term boundaries without offsets
                 return -1;
@@ -192,11 +200,9 @@ public class PlainHighlighter implements Highlighter {
                 }
                 end = attr.endOffset();
             }
+            tokenStream.end();
             // We've exhausted the token stream so we should just highlight everything.
             return end;
-        } finally {
-            tokenStream.end();
-            tokenStream.close();
         }
     }
 }

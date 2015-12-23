@@ -19,13 +19,11 @@
 
 package org.elasticsearch.common.util;
 
-import com.google.common.collect.Iterables;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefArray;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.Counter;
 import org.elasticsearch.test.ESTestCase;
-import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -41,14 +39,11 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 
 public class CollectionUtilsTests extends ESTestCase {
-
-    @Test
-    public void rotateEmpty() {
+    public void testRotateEmpty() {
         assertTrue(CollectionUtils.rotate(Collections.emptyList(), randomInt()).isEmpty());
     }
 
-    @Test
-    public void rotate() {
+    public void testRotate() {
         final int iters = scaledRandomIntBetween(10, 100);
         for (int k = 0; k < iters; ++k) {
             final int size = randomIntBetween(1, 100);
@@ -60,7 +55,7 @@ public class CollectionUtilsTests extends ESTestCase {
             final List<Object> rotated = CollectionUtils.rotate(list, distance);
             // check content is the same
             assertEquals(rotated.size(), list.size());
-            assertEquals(Iterables.size(rotated), list.size());
+            assertEquals(rotated.size(), list.size());
             assertEquals(new HashSet<>(rotated), new HashSet<>(list));
             // check stability
             for (int j = randomInt(4); j >= 0; --j) {
@@ -73,7 +68,6 @@ public class CollectionUtilsTests extends ESTestCase {
         }
     }
 
-    @Test
     public void testSortAndDedupByteRefArray() {
         SortedSet<BytesRef> set = new TreeSet<>();
         final int numValues = scaledRandomIntBetween(0, 10000);
@@ -86,7 +80,7 @@ public class CollectionUtilsTests extends ESTestCase {
             array.append(new BytesRef(s));
         }
         if (randomBoolean()) {
-            Collections.shuffle(tmpList, getRandom());
+            Collections.shuffle(tmpList, random());
             for (BytesRef ref : tmpList) {
                 array.append(ref);
             }
@@ -107,7 +101,6 @@ public class CollectionUtilsTests extends ESTestCase {
 
     }
 
-    @Test
     public void testSortByteRefArray() {
         List<BytesRef> values = new ArrayList<>();
         final int numValues = scaledRandomIntBetween(0, 10000);
@@ -118,7 +111,7 @@ public class CollectionUtilsTests extends ESTestCase {
             array.append(new BytesRef(s));
         }
         if (randomBoolean()) {
-            Collections.shuffle(values, getRandom());
+            Collections.shuffle(values, random());
         }
         int[] indices = new int[array.size()];
         for (int i = 0; i < indices.length; i++) {

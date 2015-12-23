@@ -23,6 +23,7 @@ import org.elasticsearch.ElasticsearchTimeoutException;
 import org.elasticsearch.cluster.ClusterChangedEvent;
 import org.elasticsearch.cluster.block.ClusterBlock;
 import org.elasticsearch.cluster.node.DiscoveryNode;
+import org.elasticsearch.common.Randomness;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.component.AbstractLifecycleComponent;
 import org.elasticsearch.common.inject.Inject;
@@ -39,6 +40,7 @@ import java.util.concurrent.TimeUnit;
 public class DiscoveryService extends AbstractLifecycleComponent<DiscoveryService> {
 
     public static final String SETTING_INITIAL_STATE_TIMEOUT = "discovery.initial_state_timeout";
+    public static final String SETTING_DISCOVERY_SEED = "discovery.id.seed";
 
     private static class InitialStateListener implements InitialStateDiscoveryListener {
 
@@ -112,14 +114,6 @@ public class DiscoveryService extends AbstractLifecycleComponent<DiscoveryServic
         return discovery.localNode();
     }
 
-    /**
-     * Returns <tt>true</tt> if the initial state was received within the timeout waiting for it
-     * on {@link #doStart()}.
-     */
-    public boolean initialStateReceived() {
-        return initialStateListener.initialStateReceived;
-    }
-
     public String nodeDescription() {
         return discovery.nodeDescription();
     }
@@ -127,7 +121,7 @@ public class DiscoveryService extends AbstractLifecycleComponent<DiscoveryServic
     /**
      * Publish all the changes to the cluster from the master (can be called just by the master). The publish
      * process should not publish this state to the master as well! (the master is sending it...).
-     * <p/>
+     * <p>
      * The {@link org.elasticsearch.discovery.Discovery.AckListener} allows to acknowledge the publish
      * event based on the response gotten from all nodes
      */
@@ -138,10 +132,7 @@ public class DiscoveryService extends AbstractLifecycleComponent<DiscoveryServic
     }
 
     public static String generateNodeId(Settings settings) {
-        String seed = settings.get("discovery.id.seed");
-        if (seed != null) {
-            return Strings.randomBase64UUID(new Random(Long.parseLong(seed)));
-        }
-        return Strings.randomBase64UUID();
+        Random random = Randomness.get(settings, DiscoveryService.SETTING_DISCOVERY_SEED);
+        return Strings.randomBase64UUID(random);
     }
 }

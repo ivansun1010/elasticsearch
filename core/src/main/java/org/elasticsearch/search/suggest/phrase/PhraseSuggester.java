@@ -29,12 +29,12 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.CharsRefBuilder;
 import org.elasticsearch.common.bytes.BytesReference;
-import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.lucene.Lucene;
-import org.elasticsearch.common.lucene.Lucene.EarlyTerminatingCollector;
-import org.elasticsearch.common.text.StringText;
 import org.elasticsearch.common.text.Text;
+import org.elasticsearch.index.IndexService;
 import org.elasticsearch.index.query.ParsedQuery;
+import org.elasticsearch.index.shard.IndexShard;
+import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.script.CompiledScript;
 import org.elasticsearch.script.ExecutableScript;
 import org.elasticsearch.script.ScriptService;
@@ -55,10 +55,11 @@ public final class PhraseSuggester extends Suggester<PhraseSuggestionContext> {
     private final BytesRef SEPARATOR = new BytesRef(" ");
     private static final String SUGGESTION_TEMPLATE_VAR_NAME = "suggestion";
     private final ScriptService scriptService;
+    private final IndicesService indicesService;
 
-    @Inject
-    public PhraseSuggester(ScriptService scriptService) {
+    public PhraseSuggester(ScriptService scriptService, IndicesService indicesService) {
         this.scriptService = scriptService;
+        this.indicesService = indicesService;
     }
 
     /*
@@ -92,18 +93,18 @@ public final class PhraseSuggester extends Suggester<PhraseSuggestionContext> {
         if (gens.size() > 0 && suggestTerms != null) {
             final NoisyChannelSpellChecker checker = new NoisyChannelSpellChecker(realWordErrorLikelihood, suggestion.getRequireUnigram(), suggestion.getTokenLimit());
             final BytesRef separator = suggestion.separator();
-            TokenStream stream = checker.tokenStream(suggestion.getAnalyzer(), suggestion.getText(), spare, suggestion.getField());
-            
             WordScorer wordScorer = suggestion.model().newScorer(indexReader, suggestTerms, suggestField, realWordErrorLikelihood, separator);
-            Result checkerResult = checker.getCorrections(stream, new MultiCandidateGeneratorWrapper(suggestion.getShardSize(),
-                    gens.toArray(new CandidateGenerator[gens.size()])), suggestion.maxErrors(),
-                    suggestion.getShardSize(), wordScorer, suggestion.confidence(), suggestion.gramSize());
+            Result checkerResult;
+            try (TokenStream stream = checker.tokenStream(suggestion.getAnalyzer(), suggestion.getText(), spare, suggestion.getField())) {
+                checkerResult = checker.getCorrections(stream, new MultiCandidateGeneratorWrapper(suggestion.getShardSize(),
+                                                                                                         gens.toArray(new CandidateGenerator[gens.size()])), suggestion.maxErrors(),
+                                                              suggestion.getShardSize(), wordScorer, suggestion.confidence(), suggestion.gramSize());
+                }
 
             PhraseSuggestion.Entry resultEntry = buildResultEntry(suggestion, spare, checkerResult.cutoffScore);
             response.addTerm(resultEntry);
 
             final BytesRefBuilder byteSpare = new BytesRefBuilder();
-            final EarlyTerminatingCollector collector = Lucene.createExistsCollector();
             final CompiledScript collateScript = suggestion.getCollateQueryScript();
             final boolean collatePrune = (collateScript != null) && suggestion.collatePrune();
             for (int i = 0; i < checkerResult.corrections.length; i++) {
@@ -117,17 +118,19 @@ public final class PhraseSuggester extends Suggester<PhraseSuggestionContext> {
                     vars.put(SUGGESTION_TEMPLATE_VAR_NAME, spare.toString());
                     final ExecutableScript executable = scriptService.executable(collateScript, vars);
                     final BytesReference querySource = (BytesReference) executable.run();
-                    final ParsedQuery parsedQuery = suggestion.getQueryParserService().parse(querySource);
-                    collateMatch = Lucene.exists(searcher, parsedQuery.query(), collector);
+                    IndexService indexService = indicesService.indexService(suggestion.getIndex());
+                    IndexShard shard = indexService.getShard(suggestion.getShard());
+                    final ParsedQuery parsedQuery = shard.getQueryShardContext().parse(querySource);
+                    collateMatch = Lucene.exists(searcher, parsedQuery.query());
                 }
                 if (!collateMatch && !collatePrune) {
                     continue;
                 }
-                Text phrase = new StringText(spare.toString());
+                Text phrase = new Text(spare.toString());
                 Text highlighted = null;
                 if (suggestion.getPreTag() != null) {
                     spare.copyUTF8Bytes(correction.join(SEPARATOR, byteSpare, suggestion.getPreTag(), suggestion.getPostTag()));
-                    highlighted = new StringText(spare.toString());
+                    highlighted = new Text(spare.toString());
                 }
                 if (collatePrune) {
                     resultEntry.addOption(new Suggestion.Entry.Option(phrase, highlighted, (float) (correction.score), collateMatch));
@@ -143,7 +146,7 @@ public final class PhraseSuggester extends Suggester<PhraseSuggestionContext> {
 
     private PhraseSuggestion.Entry buildResultEntry(PhraseSuggestionContext suggestion, CharsRefBuilder spare, double cutoffScore) {
         spare.copyUTF8Bytes(suggestion.getText());
-        return new PhraseSuggestion.Entry(new StringText(spare.toString()), 0, spare.length(), cutoffScore);
+        return new PhraseSuggestion.Entry(new Text(spare.toString()), 0, spare.length(), cutoffScore);
     }
 
     ScriptService scriptService() {

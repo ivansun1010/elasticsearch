@@ -21,20 +21,34 @@ package org.elasticsearch.discovery.ec2;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.services.ec2.AmazonEC2;
-import com.amazonaws.services.ec2.model.*;
+import com.amazonaws.services.ec2.model.DescribeInstancesRequest;
+import com.amazonaws.services.ec2.model.DescribeInstancesResult;
+import com.amazonaws.services.ec2.model.Filter;
+import com.amazonaws.services.ec2.model.GroupIdentifier;
+import com.amazonaws.services.ec2.model.Instance;
+import com.amazonaws.services.ec2.model.Reservation;
 import org.elasticsearch.Version;
 import org.elasticsearch.cloud.aws.AwsEc2Service;
+import org.elasticsearch.cloud.aws.AwsEc2Service.DISCOVERY_EC2;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.component.AbstractComponent;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.transport.TransportAddress;
+import org.elasticsearch.common.unit.TimeValue;
+import org.elasticsearch.common.util.SingleObjectCache;
 import org.elasticsearch.discovery.zen.ping.unicast.UnicastHostsProvider;
-import org.elasticsearch.discovery.zen.ping.unicast.UnicastZenPing;
 import org.elasticsearch.transport.TransportService;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 /**
  *
@@ -64,6 +78,8 @@ public class AwsEc2UnicastHostsProvider extends AbstractComponent implements Uni
 
     private final HostType hostType;
 
+    private final DiscoNodesCache discoNodes;
+
     @Inject
     public AwsEc2UnicastHostsProvider(Settings settings, TransportService transportService, AwsEc2Service awsEc2Service, Version version) {
         super(settings);
@@ -71,18 +87,22 @@ public class AwsEc2UnicastHostsProvider extends AbstractComponent implements Uni
         this.client = awsEc2Service.client();
         this.version = version;
 
-        this.hostType = HostType.valueOf(settings.get("discovery.ec2.host_type", "private_ip").toUpperCase(Locale.ROOT));
+        this.hostType = HostType.valueOf(settings.get(DISCOVERY_EC2.HOST_TYPE, "private_ip")
+                .toUpperCase(Locale.ROOT));
 
-        this.bindAnyGroup = settings.getAsBoolean("discovery.ec2.any_group", true);
+        this.discoNodes = new DiscoNodesCache(this.settings.getAsTime(DISCOVERY_EC2.NODE_CACHE_TIME,
+                                              TimeValue.timeValueMillis(10_000L)));
+
+        this.bindAnyGroup = settings.getAsBoolean(DISCOVERY_EC2.ANY_GROUP, true);
         this.groups = new HashSet<>();
-        groups.addAll(Arrays.asList(settings.getAsArray("discovery.ec2.groups")));
+        groups.addAll(Arrays.asList(settings.getAsArray(DISCOVERY_EC2.GROUPS)));
 
-        this.tags = settings.getByPrefix("discovery.ec2.tag.").getAsMap();
+        this.tags = settings.getByPrefix(DISCOVERY_EC2.TAG_PREFIX).getAsMap();
 
-        Set<String> availabilityZones = new HashSet();
-        availabilityZones.addAll(Arrays.asList(settings.getAsArray("discovery.ec2.availability_zones")));
-        if (settings.get("discovery.ec2.availability_zones") != null) {
-            availabilityZones.addAll(Strings.commaDelimitedListToSet(settings.get("discovery.ec2.availability_zones")));
+        Set<String> availabilityZones = new HashSet<>();
+        availabilityZones.addAll(Arrays.asList(settings.getAsArray(DISCOVERY_EC2.AVAILABILITY_ZONES)));
+        if (settings.get(DISCOVERY_EC2.AVAILABILITY_ZONES) != null) {
+            availabilityZones.addAll(Strings.commaDelimitedListToSet(settings.get(DISCOVERY_EC2.AVAILABILITY_ZONES)));
         }
         this.availabilityZones = availabilityZones;
 
@@ -93,6 +113,11 @@ public class AwsEc2UnicastHostsProvider extends AbstractComponent implements Uni
 
     @Override
     public List<DiscoveryNode> buildDynamicNodes() {
+        return discoNodes.getOrRefresh();
+    }
+
+    protected List<DiscoveryNode> fetchDynamicNodes() {
+
         List<DiscoveryNode> discoNodes = new ArrayList<>();
 
         DescribeInstancesResult descInstances;
@@ -197,5 +222,26 @@ public class AwsEc2UnicastHostsProvider extends AbstractComponent implements Uni
         }
 
         return describeInstancesRequest;
+    }
+
+    private final class DiscoNodesCache extends SingleObjectCache<List<DiscoveryNode>> {
+
+        private boolean empty = true;
+
+        protected DiscoNodesCache(TimeValue refreshInterval) {
+            super(refreshInterval,  new ArrayList<>());
+        }
+
+        @Override
+        protected boolean needsRefresh() {
+            return (empty || super.needsRefresh());
+        }
+
+        @Override
+        protected List<DiscoveryNode> refresh() {
+            List<DiscoveryNode> nodes = fetchDynamicNodes();
+            empty = nodes.isEmpty();
+            return nodes;
+        }
     }
 }

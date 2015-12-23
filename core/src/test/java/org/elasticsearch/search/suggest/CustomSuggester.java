@@ -20,11 +20,7 @@ package org.elasticsearch.search.suggest;
 
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.util.CharsRefBuilder;
-import org.elasticsearch.common.HasContextAndHeaders;
-import org.elasticsearch.common.text.StringText;
-import org.elasticsearch.common.xcontent.XContentParser;
-import org.elasticsearch.index.mapper.MapperService;
-import org.elasticsearch.index.query.IndexQueryParserService;
+import org.elasticsearch.common.text.Text;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -46,11 +42,11 @@ public class CustomSuggester extends Suggester<CustomSuggester.CustomSuggestions
         Suggest.Suggestion<Suggest.Suggestion.Entry<Suggest.Suggestion.Entry.Option>> response = new Suggest.Suggestion<>(name, suggestion.getSize());
 
         String firstSuggestion = String.format(Locale.ROOT, "%s-%s-%s-%s", text, suggestion.getField(), suggestion.options.get("suffix"), "12");
-        Suggest.Suggestion.Entry<Suggest.Suggestion.Entry.Option> resultEntry12 = new Suggest.Suggestion.Entry<>(new StringText(firstSuggestion), 0, text.length() + 2);
+        Suggest.Suggestion.Entry<Suggest.Suggestion.Entry.Option> resultEntry12 = new Suggest.Suggestion.Entry<>(new Text(firstSuggestion), 0, text.length() + 2);
         response.addTerm(resultEntry12);
 
         String secondSuggestion = String.format(Locale.ROOT, "%s-%s-%s-%s", text, suggestion.getField(), suggestion.options.get("suffix"), "123");
-        Suggest.Suggestion.Entry<Suggest.Suggestion.Entry.Option> resultEntry123 = new Suggest.Suggestion.Entry<>(new StringText(secondSuggestion), 0, text.length() + 3);
+        Suggest.Suggestion.Entry<Suggest.Suggestion.Entry.Option> resultEntry123 = new Suggest.Suggestion.Entry<>(new Text(secondSuggestion), 0, text.length() + 3);
         response.addTerm(resultEntry123);
 
         return response;
@@ -58,15 +54,11 @@ public class CustomSuggester extends Suggester<CustomSuggester.CustomSuggestions
 
     @Override
     public SuggestContextParser getContextParser() {
-        return new SuggestContextParser() {
-            @Override
-            public SuggestionSearchContext.SuggestionContext parse(XContentParser parser, MapperService mapperService,
-                    IndexQueryParserService queryParserService, HasContextAndHeaders headersContext) throws IOException {
-                Map<String, Object> options = parser.map();
-                CustomSuggestionsContext suggestionContext = new CustomSuggestionsContext(CustomSuggester.this, options);
-                suggestionContext.setField((String) options.get("field"));
-                return suggestionContext;
-            }
+        return (parser, mapperService, fieldData, headersContext) -> {
+            Map<String, Object> options = parser.map();
+            CustomSuggestionsContext suggestionContext = new CustomSuggestionsContext(CustomSuggester.this, options);
+            suggestionContext.setField((String) options.get("field"));
+            return suggestionContext;
         };
     }
 

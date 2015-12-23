@@ -19,7 +19,6 @@
 
 package org.elasticsearch.repositories.blobstore;
 
-import com.google.common.io.ByteStreams;
 import org.apache.lucene.store.RateLimiter;
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.Version;
@@ -36,6 +35,7 @@ import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.component.AbstractLifecycleComponent;
 import org.elasticsearch.common.compress.NotXContentException;
+import org.elasticsearch.common.io.Streams;
 import org.elasticsearch.common.io.stream.BytesStreamOutput;
 import org.elasticsearch.common.io.stream.OutputStreamStreamOutput;
 import org.elasticsearch.common.io.stream.StreamOutput;
@@ -65,7 +65,6 @@ import org.elasticsearch.snapshots.SnapshotShardFailure;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -74,11 +73,10 @@ import java.util.Map;
 
 /**
  * BlobStore - based implementation of Snapshot Repository
- * <p/>
+ * <p>
  * This repository works with any {@link BlobStore} implementation. The blobStore should be initialized in the derived
  * class before {@link #doStart()} is called.
- * <p/>
- * <p/>
+ * <p>
  * BlobStoreRepository maintains the following structure in the blob store
  * <pre>
  * {@code
@@ -228,7 +226,7 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent<Rep
 
     /**
      * Returns initialized and ready to use BlobStore
-     * <p/>
+     * <p>
      * This method is first called in the {@link #doStart()} method.
      *
      * @return blob store
@@ -251,7 +249,7 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent<Rep
 
     /**
      * Returns data file chunk size.
-     * <p/>
+     * <p>
      * This method should return null if no chunking is needed.
      *
      * @return chunk size
@@ -294,7 +292,7 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent<Rep
         if (readOnly()) {
             throw new RepositoryException(this.repositoryName, "cannot delete snapshot from a readonly repository");
         }
-        List<String> indices = Collections.EMPTY_LIST;
+        List<String> indices = Collections.emptyList();
         Snapshot snapshot = null;
         try {
             snapshot = readSnapshot(snapshotId);
@@ -532,7 +530,6 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent<Rep
 
     /**
      * In v2.0.0 we changed the matadata file format
-     * @param version
      * @return true if legacy version should be used false otherwise
      */
     public static boolean legacyMetaData(Version version) {
@@ -552,7 +549,7 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent<Rep
 
     /**
      * Writes snapshot index file
-     * <p/>
+     * <p>
      * This file can be used by read-only repositories that are unable to list files in the repository
      *
      * @param snapshots list of snapshot ids
@@ -577,24 +574,23 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent<Rep
         if (snapshotsBlobContainer.blobExists(SNAPSHOTS_FILE)) {
             snapshotsBlobContainer.deleteBlob(SNAPSHOTS_FILE);
         }
-        try (OutputStream output = snapshotsBlobContainer.createOutput(SNAPSHOTS_FILE)) {
-            bRef.writeTo(output);
-        }
+        snapshotsBlobContainer.writeBlob(SNAPSHOTS_FILE, bRef);
     }
 
     /**
      * Reads snapshot index file
-     * <p/>
+     * <p>
      * This file can be used by read-only repositories that are unable to list files in the repository
      *
      * @return list of snapshots in the repository
      * @throws IOException I/O errors
      */
     protected List<SnapshotId> readSnapshotList() throws IOException {
-        try (InputStream blob = snapshotsBlobContainer.openInput(SNAPSHOTS_FILE)) {
-            final byte[] data = ByteStreams.toByteArray(blob);
+        try (InputStream blob = snapshotsBlobContainer.readBlob(SNAPSHOTS_FILE)) {
+            BytesStreamOutput out = new BytesStreamOutput();
+            Streams.copy(blob, out);
             ArrayList<SnapshotId> snapshots = new ArrayList<>();
-            try (XContentParser parser = XContentHelper.createParser(new BytesArray(data))) {
+            try (XContentParser parser = XContentHelper.createParser(out.bytes())) {
                 if (parser.nextToken() == XContentParser.Token.START_OBJECT) {
                     if (parser.nextToken() == XContentParser.Token.FIELD_NAME) {
                         String currentFieldName = parser.currentName();
@@ -643,9 +639,7 @@ public abstract class BlobStoreRepository extends AbstractLifecycleComponent<Rep
                 byte[] testBytes = Strings.toUTF8Bytes(seed);
                 BlobContainer testContainer = blobStore().blobContainer(basePath().add(testBlobPrefix(seed)));
                 String blobName = "master.dat";
-                try (OutputStream outputStream = testContainer.createOutput(blobName + "-temp")) {
-                    outputStream.write(testBytes);
-                }
+                testContainer.writeBlob(blobName + "-temp", new BytesArray(testBytes));
                 // Make sure that move is supported
                 testContainer.move(blobName + "-temp", blobName);
                 return seed;

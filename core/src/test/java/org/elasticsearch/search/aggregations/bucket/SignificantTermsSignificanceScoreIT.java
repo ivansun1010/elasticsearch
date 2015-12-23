@@ -16,7 +16,6 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
 package org.elasticsearch.search.aggregations.bucket;
 
 import org.elasticsearch.action.index.IndexRequestBuilder;
@@ -24,16 +23,14 @@ import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.common.ParseFieldMatcher;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.index.query.QueryParsingException;
+import org.elasticsearch.index.query.QueryShardException;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.script.Script;
 import org.elasticsearch.script.ScriptModule;
-import org.elasticsearch.script.ScriptService;
 import org.elasticsearch.script.ScriptService.ScriptType;
 import org.elasticsearch.search.SearchModule;
 import org.elasticsearch.search.aggregations.Aggregation;
@@ -41,7 +38,6 @@ import org.elasticsearch.search.aggregations.bucket.filter.FilterAggregationBuil
 import org.elasticsearch.search.aggregations.bucket.filter.InternalFilter;
 import org.elasticsearch.search.aggregations.bucket.script.NativeSignificanceScoreScriptNoParams;
 import org.elasticsearch.search.aggregations.bucket.script.NativeSignificanceScoreScriptWithParams;
-import org.elasticsearch.search.aggregations.bucket.significant.SignificantStringTerms;
 import org.elasticsearch.search.aggregations.bucket.significant.SignificantTerms;
 import org.elasticsearch.search.aggregations.bucket.significant.SignificantTermsAggregatorFactory;
 import org.elasticsearch.search.aggregations.bucket.significant.SignificantTermsBuilder;
@@ -58,7 +54,7 @@ import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsBuilder;
 import org.elasticsearch.search.internal.SearchContext;
 import org.elasticsearch.test.ESIntegTestCase;
-import org.junit.Test;
+import org.elasticsearch.test.search.aggregations.bucket.SharedSignificantTermsTestMethods;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -71,7 +67,6 @@ import java.util.concurrent.ExecutionException;
 
 import static org.elasticsearch.cluster.metadata.IndexMetaData.SETTING_NUMBER_OF_REPLICAS;
 import static org.elasticsearch.cluster.metadata.IndexMetaData.SETTING_NUMBER_OF_SHARDS;
-import static org.elasticsearch.common.settings.Settings.settingsBuilder;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertSearchResponse;
 import static org.hamcrest.Matchers.closeTo;
@@ -91,14 +86,6 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
     static final String CLASS_FIELD = "class";
 
     @Override
-    public Settings nodeSettings(int nodeOrdinal) {
-        return settingsBuilder()
-                .put(super.nodeSettings(nodeOrdinal))
-                .put("path.conf", this.getDataPath("config"))
-                .build();
-    }
-
-    @Override
     protected Collection<Class<? extends Plugin>> nodePlugins() {
         return pluginList(CustomSignificanceHeuristicPlugin.class);
     }
@@ -107,11 +94,10 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
         return randomBoolean() ? null : randomFrom(SignificantTermsAggregatorFactory.ExecutionMode.values()).toString();
     }
 
-    @Test
     public void testPlugin() throws Exception {
         String type = randomBoolean() ? "string" : "long";
         String settings = "{\"index.number_of_shards\": 1, \"index.number_of_replicas\": 0}";
-        index01Docs(type, settings);
+        SharedSignificantTermsTestMethods.index01Docs(type, settings, this);
         SearchResponse response = client().prepareSearch(INDEX_NAME).setTypes(DOC_TYPE)
                 .addAggregation(new TermsBuilder("class")
                         .field(CLASS_FIELD)
@@ -176,6 +162,10 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
 
     public static class CustomSignificanceHeuristicPlugin extends Plugin {
 
+        static {
+            SignificanceHeuristicStreams.registerStream(SimpleHeuristic.STREAM);
+        }
+
         @Override
         public String name() {
             return "test-plugin-significance-heuristic";
@@ -188,7 +178,6 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
 
         public void onModule(SearchModule significanceModule) {
             significanceModule.registerHeuristicParser(SimpleHeuristic.SimpleHeuristicParser.class);
-            significanceModule.registerStream(SimpleHeuristic.STREAM);
         }
         public void onModule(ScriptModule module) {
             module.registerScript(NativeSignificanceScoreScriptNoParams.NATIVE_SIGNIFICANCE_SCORE_SCRIPT_NO_PARAMS, NativeSignificanceScoreScriptNoParams.Factory.class);
@@ -237,7 +226,7 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
 
             @Override
             public SignificanceHeuristic parse(XContentParser parser, ParseFieldMatcher parseFieldMatcher, SearchContext context)
-                    throws IOException, QueryParsingException {
+                    throws IOException, QueryShardException {
                 parser.nextToken();
                 return new SimpleHeuristic();
             }
@@ -258,13 +247,10 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
         }
     }
 
-
-    @Test
     public void testXContentResponse() throws Exception {
-
         String type = randomBoolean() ? "string" : "long";
         String settings = "{\"index.number_of_shards\": 1, \"index.number_of_replicas\": 0}";
-        index01Docs(type, settings);
+        SharedSignificantTermsTestMethods.index01Docs(type, settings, this);
         SearchResponse response = client().prepareSearch(INDEX_NAME).setTypes(DOC_TYPE)
                 .addAggregation(new TermsBuilder("class").field(CLASS_FIELD).subAggregation(new SignificantTermsBuilder("sig_terms").field(TEXT_FIELD)))
                 .execute()
@@ -294,7 +280,6 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
 
     }
 
-    @Test
     public void testDeletesIssue7951() throws Exception {
         String settings = "{\"index.number_of_shards\": 1, \"index.number_of_replicas\": 0}";
         String mappings = "{\"doc\": {\"properties\":{\"text\": {\"type\":\"string\",\"index\":\"not_analyzed\"}}}}";
@@ -337,11 +322,10 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
                 .actionGet();
     }
 
-    @Test
     public void testBackgroundVsSeparateSet() throws Exception {
         String type = randomBoolean() ? "string" : "long";
         String settings = "{\"index.number_of_shards\": 1, \"index.number_of_replicas\": 0}";
-        index01Docs(type, settings);
+        SharedSignificantTermsTestMethods.index01Docs(type, settings, this);
         testBackgroundVsSeparateSet(new MutualInformation.MutualInformationBuilder(true, true), new MutualInformation.MutualInformationBuilder(true, false));
         testBackgroundVsSeparateSet(new ChiSquare.ChiSquareBuilder(true, true), new ChiSquare.ChiSquareBuilder(true, false));
         testBackgroundVsSeparateSet(new GND.GNDBuilder(true), new GND.GNDBuilder(false));
@@ -402,29 +386,6 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
         assertThat(score11Background, equalTo(score11SeparateSets));
     }
 
-    private void index01Docs(String type, String settings) throws ExecutionException, InterruptedException {
-        String mappings = "{\"doc\": {\"properties\":{\"text\": {\"type\":\"" + type + "\"}}}}";
-        assertAcked(prepareCreate(INDEX_NAME).setSettings(settings).addMapping("doc", mappings));
-        String[] gb = {"0", "1"};
-        List<IndexRequestBuilder> indexRequestBuilderList = new ArrayList<>();
-        indexRequestBuilderList.add(client().prepareIndex(INDEX_NAME, DOC_TYPE, "1")
-                .setSource(TEXT_FIELD, "1", CLASS_FIELD, "1"));
-        indexRequestBuilderList.add(client().prepareIndex(INDEX_NAME, DOC_TYPE, "2")
-                .setSource(TEXT_FIELD, "1", CLASS_FIELD, "1"));
-        indexRequestBuilderList.add(client().prepareIndex(INDEX_NAME, DOC_TYPE, "3")
-                .setSource(TEXT_FIELD, "0", CLASS_FIELD, "0"));
-        indexRequestBuilderList.add(client().prepareIndex(INDEX_NAME, DOC_TYPE, "4")
-                .setSource(TEXT_FIELD, "0", CLASS_FIELD, "0"));
-        indexRequestBuilderList.add(client().prepareIndex(INDEX_NAME, DOC_TYPE, "5")
-                .setSource(TEXT_FIELD, gb, CLASS_FIELD, "1"));
-        indexRequestBuilderList.add(client().prepareIndex(INDEX_NAME, DOC_TYPE, "6")
-                .setSource(TEXT_FIELD, gb, CLASS_FIELD, "0"));
-        indexRequestBuilderList.add(client().prepareIndex(INDEX_NAME, DOC_TYPE, "7")
-                .setSource(TEXT_FIELD, "0", CLASS_FIELD, "0"));
-        indexRandom(true, false, indexRequestBuilderList);
-    }
-
-    @Test
     public void testScoresEqualForPositiveAndNegative() throws Exception {
         indexEqualTestData();
         testScoresEqualForPositiveAndNegative(new MutualInformation.MutualInformationBuilder(true, true));
@@ -490,7 +451,6 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
         indexRandom(true, false, indexRequestBuilders);
     }
 
-    @Test
     public void testScriptScore() throws ExecutionException, InterruptedException, IOException {
         indexRandomFrequencies01(randomBoolean() ? "string" : "long");
         ScriptHeuristic.ScriptHeuristicBuilder scriptHeuristicBuilder = getScriptSignificanceHeuristicBuilder();
@@ -511,92 +471,15 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
         }
     }
 
-    @Test
-    public void testNoNumberFormatExceptionWithDefaultScriptingEngine() throws ExecutionException, InterruptedException, IOException {
-        assertAcked(client().admin().indices().prepareCreate("test").setSettings(Settings.builder().put("index.number_of_shards", 1)));
-        index("test", "doc", "1", "{\"field\":\"a\"}");
-        index("test", "doc", "11", "{\"field\":\"a\"}");
-        index("test", "doc", "2", "{\"field\":\"b\"}");
-        index("test", "doc", "22", "{\"field\":\"b\"}");
-        index("test", "doc", "3", "{\"field\":\"a b\"}");
-        index("test", "doc", "33", "{\"field\":\"a b\"}");
-        ScriptHeuristic.ScriptHeuristicBuilder scriptHeuristicBuilder = new ScriptHeuristic.ScriptHeuristicBuilder();
-        scriptHeuristicBuilder.setScript(new Script("_subset_freq/(_superset_freq - _subset_freq + 1)"));
-        ensureYellow();
-        refresh();
-        SearchResponse response = client()
-                .prepareSearch("test")
-                .addAggregation(
-                        new TermsBuilder("letters").field("field").subAggregation(
-                                new SignificantTermsBuilder("mySignificantTerms").field("field").executionHint(randomExecutionHint())
-                                        .significanceHeuristic(scriptHeuristicBuilder).minDocCount(1).shardSize(2).size(2))).execute()
-                .actionGet();
-        assertSearchResponse(response);
-        assertThat(((Terms) response.getAggregations().get("letters")).getBuckets().size(), equalTo(2));
-        for (Terms.Bucket classBucket : ((Terms) response.getAggregations().get("letters")).getBuckets()) {
-            assertThat(((SignificantStringTerms) classBucket.getAggregations().get("mySignificantTerms")).getBuckets().size(), equalTo(2));
-            for (SignificantTerms.Bucket bucket : ((SignificantTerms) classBucket.getAggregations().get("mySignificantTerms")).getBuckets()) {
-                assertThat(bucket.getSignificanceScore(),
-                        closeTo((double) bucket.getSubsetDf() / (bucket.getSupersetDf() - bucket.getSubsetDf() + 1), 1.e-6));
-            }
-        }
-    }
-
     private ScriptHeuristic.ScriptHeuristicBuilder getScriptSignificanceHeuristicBuilder() throws IOException {
-        Map<String, Object> params = null;
         Script script = null;
-        String lang = null;
         if (randomBoolean()) {
+            Map<String, Object> params = null;
             params = new HashMap<>();
             params.put("param", randomIntBetween(1, 100));
-        }
-        int randomScriptKind = randomIntBetween(0, 3);
-        if (randomBoolean()) {
-            lang = "groovy";
-        }
-        switch (randomScriptKind) {
-        case 0: {
-            if (params == null) {
-                script = new Script("return _subset_freq + _subset_size + _superset_freq + _superset_size");
-            } else {
-                script = new Script("return param*(_subset_freq + _subset_size + _superset_freq + _superset_size)/param",
-                        ScriptType.INLINE, lang, params);
-            }
-            break;
-        }
-        case 1: {
-            String scriptString;
-            if (params == null) {
-                scriptString = "return _subset_freq + _subset_size + _superset_freq + _superset_size";
-            } else {
-                scriptString = "return param*(_subset_freq + _subset_size + _superset_freq + _superset_size)/param";
-            }
-            client().prepareIndex().setIndex(ScriptService.SCRIPT_INDEX).setType(ScriptService.DEFAULT_LANG).setId("my_script")
-                    .setSource(XContentFactory.jsonBuilder().startObject().field("script", scriptString).endObject()).get();
-            refresh();
-            script = new Script("my_script", ScriptType.INDEXED, lang, params);
-            break;
-        }
-        case 2: {
-            if (params == null) {
-                script = new Script("significance_script_no_params", ScriptType.FILE, lang, null);
-            } else {
-                script = new Script("significance_script_with_params", ScriptType.FILE, lang, params);
-            }
-            break;
-        }
-        case 3: {
-            logger.info("NATIVE SCRIPT");
-            if (params == null) {
-                script = new Script("native_significance_score_script_no_params", ScriptType.INLINE, "native", null);
-            } else {
-                script = new Script("native_significance_score_script_with_params", ScriptType.INLINE, "native", params);
-            }
-            lang = "native";
-            if (randomBoolean()) {
-            }
-            break;
-        }
+            script = new Script("native_significance_score_script_with_params", ScriptType.INLINE, "native", params);
+        } else {
+            script = new Script("native_significance_score_script_no_params", ScriptType.INLINE, "native", null);
         }
         ScriptHeuristic.ScriptHeuristicBuilder builder = new ScriptHeuristic.ScriptHeuristicBuilder().setScript(script);
 
@@ -621,4 +504,9 @@ public class SignificantTermsSignificanceScoreIT extends ESIntegTestCase {
         }
         indexRandom(true, indexRequestBuilderList);
     }
+
+    public void testReduceFromSeveralShards() throws IOException, ExecutionException, InterruptedException {
+        SharedSignificantTermsTestMethods.aggregateAndCheckFromSeveralShards(this);
+    }
+
 }

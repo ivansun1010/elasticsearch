@@ -18,11 +18,6 @@
  */
 package org.elasticsearch.snapshots;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
 import org.elasticsearch.Version;
 import org.elasticsearch.action.ShardOperationFailedException;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -34,6 +29,11 @@ import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentBuilderString;
 import org.elasticsearch.rest.RestStatus;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Information about snapshot
@@ -131,7 +131,7 @@ public class SnapshotInfo implements ToXContent, Streamable {
 
     /**
      * Returns time when snapshot ended
-     * <p/>
+     * <p>
      * Can be 0L if snapshot is still running
      *
      * @return snapshot end time
@@ -310,7 +310,6 @@ public class SnapshotInfo implements ToXContent, Streamable {
      *
      * @param in stream input
      * @return deserialized snapshot info
-     * @throws IOException
      */
     public static SnapshotInfo readSnapshotInfo(StreamInput in) throws IOException {
         SnapshotInfo snapshotInfo = new SnapshotInfo();
@@ -323,10 +322,9 @@ public class SnapshotInfo implements ToXContent, Streamable {
      *
      * @param in stream input
      * @return deserialized snapshot info or null
-     * @throws IOException
      */
     public static SnapshotInfo readOptionalSnapshotInfo(StreamInput in) throws IOException {
-        return in.readOptionalStreamable(new SnapshotInfo());
+        return in.readOptionalStreamable(SnapshotInfo::new);
     }
 
 }

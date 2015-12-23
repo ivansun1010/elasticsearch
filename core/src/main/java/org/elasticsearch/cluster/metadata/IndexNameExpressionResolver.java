@@ -43,6 +43,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -50,8 +51,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
-
-import static com.google.common.collect.Maps.newHashMap;
 
 public class IndexNameExpressionResolver extends AbstractComponent {
 
@@ -77,7 +76,7 @@ public class IndexNameExpressionResolver extends AbstractComponent {
     }
 
     /**
-     * Translates the provided index expression into actual concrete indices.
+     * Translates the provided index expression into actual concrete indices, properly deduplicated.
      *
      * @param state             the cluster state containing all the data to resolve to expressions to concrete indices
      * @param options           defines how the aliases or indices need to be resolved to concrete indices
@@ -95,7 +94,7 @@ public class IndexNameExpressionResolver extends AbstractComponent {
     }
 
     /**
-     * Translates the provided index expression into actual concrete indices.
+     * Translates the provided index expression into actual concrete indices, properly deduplicated.
      *
      * @param state             the cluster state containing all the data to resolve to expressions to concrete indices
      * @param options           defines how the aliases or indices need to be resolved to concrete indices
@@ -142,7 +141,7 @@ public class IndexNameExpressionResolver extends AbstractComponent {
             }
         }
 
-        List<String> concreteIndices = new ArrayList<>(expressions.size());
+        final Set<String> concreteIndices = new HashSet<>(expressions.size());
         for (String expression : expressions) {
             AliasOrIndex aliasOrIndex = metaData.getAliasAndIndexLookup().get(expression);
             if (aliasOrIndex == null) {
@@ -221,11 +220,19 @@ public class IndexNameExpressionResolver extends AbstractComponent {
     }
 
     /**
+     * @return If the specified string is data math expression then this method returns the resolved expression.
+     */
+    public String resolveDateMathExpression(String dateExpression) {
+        // The data math expression resolver doesn't rely on cluster state or indices options, because
+        // it just resolves the date math to an actual date.
+        return dateMathExpressionResolver.resolveExpression(dateExpression, new Context(null, null));
+    }
+
+    /**
      * Iterates through the list of indices and selects the effective list of filtering aliases for the
      * given index.
-     * <p/>
      * <p>Only aliases with filters are returned. If the indices list contains a non-filtering reference to
-     * the index itself - null is returned. Returns <tt>null</tt> if no filtering is required.</p>
+     * the index itself - null is returned. Returns <tt>null</tt> if no filtering is required.
      */
     public String[] filteringAliases(ClusterState state, String index, String... expressions) {
         // expand the aliases wildcard
@@ -246,7 +253,7 @@ public class IndexNameExpressionResolver extends AbstractComponent {
                 // Shouldn't happen
                 throw new IndexNotFoundException(index);
             }
-            AliasMetaData aliasMetaData = indexMetaData.aliases().get(alias);
+            AliasMetaData aliasMetaData = indexMetaData.getAliases().get(alias);
             boolean filteringRequired = aliasMetaData != null && aliasMetaData.filteringRequired();
             if (!filteringRequired) {
                 return null;
@@ -265,7 +272,7 @@ public class IndexNameExpressionResolver extends AbstractComponent {
                 throw new IndexNotFoundException(index);
             }
 
-            AliasMetaData aliasMetaData = indexMetaData.aliases().get(alias);
+            AliasMetaData aliasMetaData = indexMetaData.getAliases().get(alias);
             // Check that this is an alias for the current index
             // Otherwise - skip it
             if (aliasMetaData != null) {
@@ -324,7 +331,7 @@ public class IndexNameExpressionResolver extends AbstractComponent {
                         if (!aliasMetaData.searchRoutingValues().isEmpty()) {
                             // Routing alias
                             if (routings == null) {
-                                routings = newHashMap();
+                                routings = new HashMap<>();
                             }
                             Set<String> r = routings.get(concreteIndex);
                             if (r == null) {
@@ -345,7 +352,7 @@ public class IndexNameExpressionResolver extends AbstractComponent {
                                 if (paramRouting != null) {
                                     Set<String> r = new HashSet<>(paramRouting);
                                     if (routings == null) {
-                                        routings = newHashMap();
+                                        routings = new HashMap<>();
                                     }
                                     routings.put(concreteIndex, r);
                                 } else {
@@ -364,7 +371,7 @@ public class IndexNameExpressionResolver extends AbstractComponent {
                     if (paramRouting != null) {
                         Set<String> r = new HashSet<>(paramRouting);
                         if (routings == null) {
-                            routings = newHashMap();
+                            routings = new HashMap<>();
                         }
                         routings.put(expression, r);
                     } else {
@@ -388,7 +395,7 @@ public class IndexNameExpressionResolver extends AbstractComponent {
     private Map<String, Set<String>> resolveSearchRoutingAllIndices(MetaData metaData, String routing) {
         if (routing != null) {
             Set<String> r = Strings.splitStringByCommaToSet(routing);
-            Map<String, Set<String>> routings = newHashMap();
+            Map<String, Set<String>> routings = new HashMap<>();
             String[] concreteIndices = metaData.concreteAllIndices();
             for (String index : concreteIndices) {
                 routings.put(index, r);
@@ -588,7 +595,7 @@ public class IndexNameExpressionResolver extends AbstractComponent {
                 if (Regex.isMatchAllPattern(expression)) {
                     // Can only happen if the expressions was initially: '-*'
                     matches = metaData.getAliasAndIndexLookup();
-                } else if (expression.endsWith("*")) {
+                } else if (expression.indexOf("*") == expression.length() - 1) {
                     // Suffix wildcard:
                     assert expression.length() >= 2 : "expression [" + expression + "] should have at least a length of 2";
                     String fromPrefix = expression.substring(0, expression.length() - 1);
@@ -668,6 +675,7 @@ public class IndexNameExpressionResolver extends AbstractComponent {
             return result;
         }
 
+        @SuppressWarnings("fallthrough")
         String resolveExpression(String expression, final Context context) {
             if (expression.startsWith(EXPRESSION_LEFT_BOUND) == false || expression.endsWith(EXPRESSION_RIGHT_BOUND) == false) {
                 return expression;
@@ -796,6 +804,19 @@ public class IndexNameExpressionResolver extends AbstractComponent {
             }
             return beforePlaceHolderSb.toString();
         }
+    }
+
+    /**
+     * Returns <code>true</code> iff the given expression resolves to the given index name otherwise <code>false</code>
+     */
+    public final boolean matchesIndex(String indexName, String expression, ClusterState state) {
+        final String[] concreteIndices = concreteIndices(state, IndicesOptions.lenientExpandOpen(), expression);
+        for (String index : concreteIndices) {
+            if (Regex.simpleMatch(index, indexName)) {
+                return true;
+            }
+        }
+        return indexName.equals(expression);
     }
 
 }

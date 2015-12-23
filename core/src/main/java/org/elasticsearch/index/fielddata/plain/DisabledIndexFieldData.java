@@ -20,16 +20,16 @@
 package org.elasticsearch.index.fielddata.plain;
 
 import org.apache.lucene.index.LeafReaderContext;
-import org.elasticsearch.common.settings.Settings;
-import org.elasticsearch.index.Index;
-import org.elasticsearch.index.fielddata.*;
+import org.elasticsearch.index.IndexSettings;
+import org.elasticsearch.index.fielddata.AtomicFieldData;
+import org.elasticsearch.index.fielddata.FieldDataType;
+import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.fielddata.IndexFieldData.XFieldComparatorSource.Nested;
+import org.elasticsearch.index.fielddata.IndexFieldDataCache;
 import org.elasticsearch.index.mapper.MappedFieldType;
-import org.elasticsearch.index.mapper.MappedFieldType.Names;
 import org.elasticsearch.index.mapper.MapperService;
-import org.elasticsearch.index.settings.IndexSettings;
-import org.elasticsearch.search.MultiValueMode;
 import org.elasticsearch.indices.breaker.CircuitBreakerService;
+import org.elasticsearch.search.MultiValueMode;
 
 /**
  * A field data implementation that forbids loading and will throw an {@link IllegalStateException} if you try to load
@@ -39,15 +39,15 @@ public final class DisabledIndexFieldData extends AbstractIndexFieldData<AtomicF
 
     public static class Builder implements IndexFieldData.Builder {
         @Override
-        public IndexFieldData<AtomicFieldData> build(Index index, @IndexSettings Settings indexSettings, MappedFieldType fieldType,
+        public IndexFieldData<AtomicFieldData> build(IndexSettings indexSettings, MappedFieldType fieldType,
                                                         IndexFieldDataCache cache, CircuitBreakerService breakerService, MapperService mapperService) {
             // Ignore Circuit Breaker
-            return new DisabledIndexFieldData(index, indexSettings, fieldType.names(), fieldType.fieldDataType(), cache);
+            return new DisabledIndexFieldData(indexSettings, fieldType.name(), fieldType.fieldDataType(), cache);
         }
     }
 
-    public DisabledIndexFieldData(Index index, Settings indexSettings, Names fieldNames, FieldDataType fieldDataType, IndexFieldDataCache cache) {
-        super(index, indexSettings, fieldNames, fieldDataType, cache);
+    public DisabledIndexFieldData(IndexSettings indexSettings, String fieldName, FieldDataType fieldDataType, IndexFieldDataCache cache) {
+        super(indexSettings, fieldName, fieldDataType, cache);
     }
 
     @Override
@@ -66,7 +66,7 @@ public final class DisabledIndexFieldData extends AbstractIndexFieldData<AtomicF
     }
 
     private IllegalStateException fail() {
-        return new IllegalStateException("Field data loading is forbidden on " + getFieldNames().fullName());
+        return new IllegalStateException("Field data loading is forbidden on " + getFieldName());
     }
 
 }

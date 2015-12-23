@@ -21,6 +21,7 @@ package org.elasticsearch.index.mapper.id;
 
 import org.elasticsearch.Version;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
+import org.elasticsearch.common.compress.CompressedXContent;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.ToXContent;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -43,7 +44,7 @@ public class IdMappingTests extends ESSingleNodeTestCase {
     public void testId() throws Exception {
         String mapping = XContentFactory.jsonBuilder().startObject().startObject("type")
                 .endObject().endObject().string();
-        DocumentMapper docMapper = createIndex("test").mapperService().documentMapperParser().parse(mapping);
+        DocumentMapper docMapper = createIndex("test").mapperService().documentMapperParser().parse("type", new CompressedXContent(mapping));
 
         ParsedDocument doc = docMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
@@ -69,7 +70,7 @@ public class IdMappingTests extends ESSingleNodeTestCase {
                 .startObject("_id").field("index", "not_analyzed").endObject()
                 .endObject().endObject().string();
         Settings indexSettings = Settings.builder().put(IndexMetaData.SETTING_VERSION_CREATED, Version.V_1_4_2.id).build();
-        DocumentMapper docMapper = createIndex("test", indexSettings).mapperService().documentMapperParser().parse(mapping);
+        DocumentMapper docMapper = createIndex("test", indexSettings).mapperService().documentMapperParser().parse("type", new CompressedXContent(mapping));
 
         ParsedDocument doc = docMapper.parse("test", "type", "1", XContentFactory.jsonBuilder()
                 .startObject()
@@ -85,7 +86,7 @@ public class IdMappingTests extends ESSingleNodeTestCase {
                 .startObject("_id").field("path", "my_path").endObject()
                 .endObject().endObject().string();
         Settings settings = Settings.builder().put(IndexMetaData.SETTING_VERSION_CREATED, Version.V_1_4_2_ID).build();
-        DocumentMapper docMapper = createIndex("test", settings).mapperService().documentMapperParser().parse(mapping);
+        DocumentMapper docMapper = createIndex("test", settings).mapperService().documentMapperParser().parse("type", new CompressedXContent(mapping));
 
         // serialize the id mapping
         XContentBuilder builder = XContentFactory.jsonBuilder().startObject();
@@ -103,7 +104,7 @@ public class IdMappingTests extends ESSingleNodeTestCase {
     public void testIncludeInObjectBackcompat() throws Exception {
         String mapping = XContentFactory.jsonBuilder().startObject().startObject("type").endObject().endObject().string();
         Settings settings = Settings.builder().put(IndexMetaData.SETTING_VERSION_CREATED, Version.V_1_4_2.id).build();
-        DocumentMapper docMapper = createIndex("test", settings).mapperService().documentMapperParser().parse(mapping);
+        DocumentMapper docMapper = createIndex("test", settings).mapperService().documentMapperParser().parse("type", new CompressedXContent(mapping));
 
         ParsedDocument doc = docMapper.parse(SourceToParse.source(XContentFactory.jsonBuilder()
             .startObject()
@@ -113,5 +114,18 @@ public class IdMappingTests extends ESSingleNodeTestCase {
 
         // _id is not indexed so we need to check _uid
         assertEquals(Uid.createUid("type", "1"), doc.rootDoc().get(UidFieldMapper.NAME));
+    }
+
+    public void testIncludeInObjectNotAllowed() throws Exception {
+        String mapping = XContentFactory.jsonBuilder().startObject().startObject("type").endObject().endObject().string();
+        DocumentMapper docMapper = createIndex("test").mapperService().documentMapperParser().parse("type", new CompressedXContent(mapping));
+
+        try {
+            docMapper.parse(SourceToParse.source(XContentFactory.jsonBuilder()
+                .startObject().field("_id", "1").endObject().bytes()).type("type"));
+            fail("Expected failure to parse metadata field");
+        } catch (MapperParsingException e) {
+            assertTrue(e.getMessage(), e.getMessage().contains("Field [_id] is a metadata field and cannot be added inside a document"));
+        }
     }
 }

@@ -20,6 +20,7 @@
 package org.elasticsearch.http.netty;
 
 import org.elasticsearch.common.Booleans;
+import org.elasticsearch.common.SuppressForbidden;
 import org.elasticsearch.common.component.AbstractLifecycleComponent;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.common.netty.NettyUtils;
@@ -32,16 +33,31 @@ import org.elasticsearch.common.transport.BoundTransportAddress;
 import org.elasticsearch.common.transport.InetSocketTransportAddress;
 import org.elasticsearch.common.transport.NetworkExceptionHelper;
 import org.elasticsearch.common.transport.PortsRange;
+import org.elasticsearch.common.transport.TransportAddress;
 import org.elasticsearch.common.unit.ByteSizeUnit;
 import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.common.util.concurrent.EsExecutors;
-import org.elasticsearch.http.*;
+import org.elasticsearch.http.BindHttpException;
+import org.elasticsearch.http.HttpChannel;
+import org.elasticsearch.http.HttpInfo;
+import org.elasticsearch.http.HttpRequest;
+import org.elasticsearch.http.HttpServerAdapter;
+import org.elasticsearch.http.HttpServerTransport;
+import org.elasticsearch.http.HttpStats;
 import org.elasticsearch.http.netty.pipelining.HttpPipeliningHandler;
 import org.elasticsearch.monitor.jvm.JvmInfo;
 import org.elasticsearch.transport.BindTransportException;
 import org.jboss.netty.bootstrap.ServerBootstrap;
-import org.jboss.netty.channel.*;
+import org.jboss.netty.channel.AdaptiveReceiveBufferSizePredictorFactory;
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelHandlerContext;
+import org.jboss.netty.channel.ChannelPipeline;
+import org.jboss.netty.channel.ChannelPipelineFactory;
+import org.jboss.netty.channel.Channels;
+import org.jboss.netty.channel.ExceptionEvent;
+import org.jboss.netty.channel.FixedReceiveBufferSizePredictorFactory;
+import org.jboss.netty.channel.ReceiveBufferSizePredictorFactory;
 import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
 import org.jboss.netty.channel.socket.oio.OioServerSocketChannelFactory;
 import org.jboss.netty.handler.codec.http.HttpChunkAggregator;
@@ -52,14 +68,21 @@ import org.jboss.netty.handler.timeout.ReadTimeoutException;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.elasticsearch.common.network.NetworkService.TcpSettings.*;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_BLOCKING;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_BLOCKING_SERVER;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_DEFAULT_RECEIVE_BUFFER_SIZE;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_DEFAULT_SEND_BUFFER_SIZE;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_KEEP_ALIVE;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_NO_DELAY;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_RECEIVE_BUFFER_SIZE;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_REUSE_ADDRESS;
+import static org.elasticsearch.common.network.NetworkService.TcpSettings.TCP_SEND_BUFFER_SIZE;
 import static org.elasticsearch.common.util.concurrent.EsExecutors.daemonThreadFactory;
 
 /**
@@ -85,6 +108,7 @@ public class NettyHttpServerTransport extends AbstractLifecycleComponent<HttpSer
 
     public static final boolean DEFAULT_SETTING_PIPELINING = true;
     public static final int DEFAULT_SETTING_PIPELINING_MAX_EVENTS = 10000;
+    public static final String DEFAULT_PORT_RANGE = "9200-9300";
 
     protected final NetworkService networkService;
     protected final BigArrays bigArrays;
@@ -110,9 +134,9 @@ public class NettyHttpServerTransport extends AbstractLifecycleComponent<HttpSer
 
     protected final String port;
 
-    protected final String bindHost;
+    protected final String bindHosts[];
 
-    protected final String publishHost;
+    protected final String publishHosts[];
 
     protected final boolean detailedErrorsEnabled;
 
@@ -135,11 +159,14 @@ public class NettyHttpServerTransport extends AbstractLifecycleComponent<HttpSer
 
     protected volatile List<Channel> serverChannels = new ArrayList<>();
 
-    protected OpenChannelsHandler serverOpenChannels;
+    // package private for testing
+    OpenChannelsHandler serverOpenChannels;
 
     protected volatile HttpServerAdapter httpServerAdapter;
 
     @Inject
+    @SuppressForbidden(reason = "sets org.jboss.netty.epollBugWorkaround based on netty.epollBugWorkaround")
+    // TODO: why be confusing like this? just let the user do it with the netty parameter instead!
     public NettyHttpServerTransport(Settings settings, NetworkService networkService, BigArrays bigArrays) {
         super(settings);
         this.networkService = networkService;
@@ -160,9 +187,9 @@ public class NettyHttpServerTransport extends AbstractLifecycleComponent<HttpSer
         this.maxCompositeBufferComponents = settings.getAsInt("http.netty.max_composite_buffer_components", -1);
         this.workerCount = settings.getAsInt("http.netty.worker_count", EsExecutors.boundedNumberOfProcessors(settings) * 2);
         this.blockingServer = settings.getAsBoolean("http.netty.http.blocking_server", settings.getAsBoolean(TCP_BLOCKING_SERVER, settings.getAsBoolean(TCP_BLOCKING, false)));
-        this.port = settings.get("http.netty.port", settings.get("http.port", "9200-9300"));
-        this.bindHost = settings.get("http.netty.bind_host", settings.get("http.bind_host", settings.get("http.host")));
-        this.publishHost = settings.get("http.netty.publish_host", settings.get("http.publish_host", settings.get("http.host")));
+        this.port = settings.get("http.netty.port", settings.get("http.port", DEFAULT_PORT_RANGE));
+        this.bindHosts = settings.getAsArray("http.netty.bind_host", settings.getAsArray("http.bind_host", settings.getAsArray("http.host", null)));
+        this.publishHosts = settings.getAsArray("http.netty.publish_host", settings.getAsArray("http.publish_host", settings.getAsArray("http.host", null)));
         this.publishPort = settings.getAsInt("http.netty.publish_port", settings.getAsInt("http.publish_port", 0));
         this.tcpNoDelay = settings.get("http.netty.tcp_no_delay", settings.get(TCP_NO_DELAY, "true"));
         this.tcpKeepAlive = settings.get("http.netty.tcp_keep_alive", settings.get(TCP_KEEP_ALIVE, "true"));
@@ -250,29 +277,42 @@ public class NettyHttpServerTransport extends AbstractLifecycleComponent<HttpSer
         // Bind and start to accept incoming connections.
         InetAddress hostAddresses[];
         try {
-            hostAddresses = networkService.resolveBindHostAddress(bindHost);
+            hostAddresses = networkService.resolveBindHostAddresses(bindHosts);
         } catch (IOException e) {
-            throw new BindHttpException("Failed to resolve host [" + bindHost + "]", e);
-        }
-        
-        for (InetAddress address : hostAddresses) {
-            bindAddress(address);
+            throw new BindHttpException("Failed to resolve host [" + Arrays.toString(bindHosts) + "]", e);
         }
 
-        InetSocketAddress boundAddress = (InetSocketAddress) serverChannels.get(0).getLocalAddress();
-        InetSocketAddress publishAddress;
-        if (0 == publishPort) {
-            publishPort = boundAddress.getPort();
+        List<InetSocketTransportAddress> boundAddresses = new ArrayList<>(hostAddresses.length);
+        for (InetAddress address : hostAddresses) {
+            boundAddresses.add(bindAddress(address));
         }
+
+        final InetAddress publishInetAddress;
         try {
-            publishAddress = new InetSocketAddress(networkService.resolvePublishHostAddress(publishHost), publishPort);
+            publishInetAddress = networkService.resolvePublishHostAddresses(publishHosts);
         } catch (Exception e) {
             throw new BindTransportException("Failed to resolve publish address", e);
         }
-        this.boundAddress = new BoundTransportAddress(new InetSocketTransportAddress(boundAddress), new InetSocketTransportAddress(publishAddress));
+
+        if (0 == publishPort) {
+            for (InetSocketTransportAddress boundAddress : boundAddresses) {
+                InetAddress boundInetAddress = boundAddress.address().getAddress();
+                if (boundInetAddress.isAnyLocalAddress() || boundInetAddress.equals(publishInetAddress)) {
+                    publishPort = boundAddress.getPort();
+                    break;
+                }
+            }
+        }
+
+        if (0 == publishPort) {
+            throw new BindHttpException("Publish address [" + publishInetAddress + "] does not match any of the bound addresses [" + boundAddresses + "]");
+        }
+
+        final InetSocketAddress publishAddress = new InetSocketAddress(publishInetAddress, publishPort);;
+        this.boundAddress = new BoundTransportAddress(boundAddresses.toArray(new TransportAddress[boundAddresses.size()]), new InetSocketTransportAddress(publishAddress));
     }
-    
-    private void bindAddress(final InetAddress hostAddress) {
+
+    private InetSocketTransportAddress bindAddress(final InetAddress hostAddress) {
         PortsRange portsRange = new PortsRange(port);
         final AtomicReference<Exception> lastException = new AtomicReference<>();
         final AtomicReference<InetSocketAddress> boundSocket = new AtomicReference<>();
@@ -295,7 +335,11 @@ public class NettyHttpServerTransport extends AbstractLifecycleComponent<HttpSer
         if (!success) {
             throw new BindHttpException("Failed to bind to [" + port + "]", lastException.get());
         }
-        logger.info("Bound http to address {{}}", NetworkAddress.format(boundSocket.get()));
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("Bound http to address {{}}", NetworkAddress.format(boundSocket.get()));
+        }
+        return new InetSocketTransportAddress(boundSocket.get());
     }
 
     @Override

@@ -19,7 +19,11 @@
 
 package org.elasticsearch.rest;
 
-import org.elasticsearch.action.*;
+import org.elasticsearch.action.Action;
+import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.ActionRequest;
+import org.elasticsearch.action.ActionRequestBuilder;
+import org.elasticsearch.action.ActionResponse;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.client.FilterClient;
 import org.elasticsearch.common.ParseFieldMatcher;
@@ -30,8 +34,8 @@ import java.util.Set;
 
 /**
  * Base handler for REST requests.
- * <p/>
- * This handler makes sure that the headers & context of the handled {@link RestRequest requests} are copied over to
+ * <p>
+ * This handler makes sure that the headers &amp; context of the handled {@link RestRequest requests} are copied over to
  * the transport requests executed by the associated client. While the context is fully copied over, not all the headers
  * are copied, but a selected few. It is possible to control what headers are copied over by registering them using
  * {@link org.elasticsearch.rest.RestController#registerRelevantHeaders(String...)}

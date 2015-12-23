@@ -24,8 +24,8 @@ import org.elasticsearch.script.CompiledScript;
 import org.elasticsearch.script.ExecutableScript;
 import org.elasticsearch.script.ScriptService;
 import org.elasticsearch.test.ESTestCase;
-import org.junit.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -39,11 +39,9 @@ import static org.hamcrest.Matchers.equalTo;
  *
  */
 public class JavaScriptScriptMultiThreadedTests extends ESTestCase {
-
-    @Test
     public void testExecutableNoRuntimeParams() throws Exception {
         final JavaScriptScriptEngineService se = new JavaScriptScriptEngineService(Settings.Builder.EMPTY_SETTINGS);
-        final Object compiled = se.compile("x + y");
+        final Object compiled = se.compile("x + y", Collections.emptyMap());
         final AtomicBoolean failed = new AtomicBoolean();
 
         Thread[] threads = new Thread[50];
@@ -83,11 +81,9 @@ public class JavaScriptScriptMultiThreadedTests extends ESTestCase {
         assertThat(failed.get(), equalTo(false));
     }
 
-
-    @Test
     public void testExecutableWithRuntimeParams() throws Exception {
         final JavaScriptScriptEngineService se = new JavaScriptScriptEngineService(Settings.Builder.EMPTY_SETTINGS);
-        final Object compiled = se.compile("x + y");
+        final Object compiled = se.compile("x + y", Collections.emptyMap());
         final AtomicBoolean failed = new AtomicBoolean();
 
         Thread[] threads = new Thread[50];
@@ -127,10 +123,9 @@ public class JavaScriptScriptMultiThreadedTests extends ESTestCase {
         assertThat(failed.get(), equalTo(false));
     }
 
-    @Test
     public void testExecute() throws Exception {
         final JavaScriptScriptEngineService se = new JavaScriptScriptEngineService(Settings.Builder.EMPTY_SETTINGS);
-        final Object compiled = se.compile("x + y");
+        final Object compiled = se.compile("x + y", Collections.emptyMap());
         final AtomicBoolean failed = new AtomicBoolean();
 
         Thread[] threads = new Thread[50];
@@ -149,7 +144,7 @@ public class JavaScriptScriptMultiThreadedTests extends ESTestCase {
                             long addition = x + y;
                             runtimeVars.put("x", x);
                             runtimeVars.put("y", y);
-                            long result = ((Number) se.execute(new CompiledScript(ScriptService.ScriptType.INLINE, "testExecutableNoRuntimeParams", "js", compiled), runtimeVars)).longValue();
+                            long result = ((Number) se.executable(new CompiledScript(ScriptService.ScriptType.INLINE, "testExecutableNoRuntimeParams", "js", compiled), runtimeVars).run()).longValue();
                             assertThat(result, equalTo(addition));
                         }
                     } catch (Throwable t) {

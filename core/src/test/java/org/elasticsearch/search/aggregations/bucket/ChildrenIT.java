@@ -24,13 +24,13 @@ import org.elasticsearch.action.update.UpdateResponse;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.bucket.children.Children;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.search.aggregations.metrics.sum.Sum;
 import org.elasticsearch.search.aggregations.metrics.tophits.TopHits;
 import org.elasticsearch.search.sort.SortOrder;
 import org.elasticsearch.test.ESIntegTestCase;
-import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,9 +42,18 @@ import java.util.Set;
 import static org.elasticsearch.index.query.QueryBuilders.hasChildQuery;
 import static org.elasticsearch.index.query.QueryBuilders.matchQuery;
 import static org.elasticsearch.index.query.QueryBuilders.termQuery;
-import static org.elasticsearch.search.aggregations.AggregationBuilders.*;
-import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.*;
-import static org.hamcrest.Matchers.*;
+import static org.elasticsearch.search.aggregations.AggregationBuilders.children;
+import static org.elasticsearch.search.aggregations.AggregationBuilders.sum;
+import static org.elasticsearch.search.aggregations.AggregationBuilders.terms;
+import static org.elasticsearch.search.aggregations.AggregationBuilders.topHits;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertHitCount;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertNoFailures;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertSearchResponse;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.sameInstance;
 
 /**
  */
@@ -120,7 +129,6 @@ public class ChildrenIT extends ESIntegTestCase {
         ensureSearchable("test");
     }
 
-    @Test
     public void testChildrenAggs() throws Exception {
         SearchResponse searchResponse = client().prepareSearch("test")
                 .setQuery(matchQuery("randomized", true))
@@ -162,7 +170,6 @@ public class ChildrenIT extends ESIntegTestCase {
         }
     }
 
-    @Test
     public void testParentWithMultipleBuckets() throws Exception {
         SearchResponse searchResponse = client().prepareSearch("test")
                 .setQuery(matchQuery("randomized", false))
@@ -225,7 +232,6 @@ public class ChildrenIT extends ESIntegTestCase {
         assertThat(topHits.getHits().getAt(0).getType(), equalTo("comment"));
     }
 
-    @Test
     public void testWithDeletes() throws Exception {
         String indexName = "xyz";
         assertAcked(
@@ -270,7 +276,6 @@ public class ChildrenIT extends ESIntegTestCase {
         }
     }
 
-    @Test
     public void testNonExistingChildType() throws Exception {
         SearchResponse searchResponse = client().prepareSearch("test")
                 .addAggregation(
@@ -283,7 +288,6 @@ public class ChildrenIT extends ESIntegTestCase {
         assertThat(children.getDocCount(), equalTo(0l));
     }
 
-    @Test
     public void testPostCollection() throws Exception {
         String indexName = "prodcatalog";
         String masterType = "masterprod";
@@ -343,7 +347,6 @@ public class ChildrenIT extends ESIntegTestCase {
         assertThat(termsAgg.getBucketByKey("44").getDocCount(), equalTo(1l));
     }
 
-    @Test
     public void testHierarchicalChildrenAggs() {
         String indexName = "geo";
         String grandParentType = "continent";
@@ -388,6 +391,65 @@ public class ChildrenIT extends ESIntegTestCase {
         assertThat(terms.getBuckets().size(), equalTo(1));
         assertThat(terms.getBuckets().get(0).getKey().toString(), equalTo("brussels"));
         assertThat(terms.getBuckets().get(0).getDocCount(), equalTo(1l));
+    }
+
+    public void testPostCollectAllLeafReaders() throws Exception {
+        // The 'towns' and 'parent_names' aggs operate on parent docs and if child docs are in different segments we need
+        // to ensure those segments which child docs are also evaluated to in the post collect phase.
+
+        // Before we only evaluated segments that yielded matches in 'towns' and 'parent_names' aggs, which caused
+        // us to miss to evaluate child docs in segments we didn't have parent matches for.
+
+        assertAcked(
+            prepareCreate("index")
+                .addMapping("parentType", "name", "type=string,index=not_analyzed", "town", "type=string,index=not_analyzed")
+                .addMapping("childType", "_parent", "type=parentType", "name", "type=string,index=not_analyzed", "age", "type=integer")
+        );
+        List<IndexRequestBuilder> requests = new ArrayList<>();
+        requests.add(client().prepareIndex("index", "parentType", "1").setSource("name", "Bob", "town", "Memphis"));
+        requests.add(client().prepareIndex("index", "parentType", "2").setSource("name", "Alice", "town", "Chicago"));
+        requests.add(client().prepareIndex("index", "parentType", "3").setSource("name", "Bill", "town", "Chicago"));
+        requests.add(client().prepareIndex("index", "childType", "1").setSource("name", "Jill", "age", 5).setParent("1"));
+        requests.add(client().prepareIndex("index", "childType", "2").setSource("name", "Joey", "age", 3).setParent("1"));
+        requests.add(client().prepareIndex("index", "childType", "3").setSource("name", "John", "age", 2).setParent("2"));
+        requests.add(client().prepareIndex("index", "childType", "4").setSource("name", "Betty", "age", 6).setParent("3"));
+        requests.add(client().prepareIndex("index", "childType", "5").setSource("name", "Dan", "age", 1).setParent("3"));
+        indexRandom(true, requests);
+
+        SearchResponse response = client().prepareSearch("index")
+            .setSize(0)
+            .addAggregation(AggregationBuilders.terms("towns").field("town")
+                .subAggregation(AggregationBuilders.terms("parent_names").field("name")
+                    .subAggregation(AggregationBuilders.children("child_docs").childType("childType"))
+                )
+            )
+            .get();
+
+        Terms towns = response.getAggregations().get("towns");
+        assertThat(towns.getBuckets().size(), equalTo(2));
+        assertThat(towns.getBuckets().get(0).getKeyAsString(), equalTo("Chicago"));
+        assertThat(towns.getBuckets().get(0).getDocCount(), equalTo(2L));
+
+        Terms parents = towns.getBuckets().get(0).getAggregations().get("parent_names");
+        assertThat(parents.getBuckets().size(), equalTo(2));
+        assertThat(parents.getBuckets().get(0).getKeyAsString(), equalTo("Alice"));
+        assertThat(parents.getBuckets().get(0).getDocCount(), equalTo(1L));
+        Children children = parents.getBuckets().get(0).getAggregations().get("child_docs");
+        assertThat(children.getDocCount(), equalTo(1L));
+
+        assertThat(parents.getBuckets().get(1).getKeyAsString(), equalTo("Bill"));
+        assertThat(parents.getBuckets().get(1).getDocCount(), equalTo(1L));
+        children = parents.getBuckets().get(1).getAggregations().get("child_docs");
+        assertThat(children.getDocCount(), equalTo(2L));
+
+        assertThat(towns.getBuckets().get(1).getKeyAsString(), equalTo("Memphis"));
+        assertThat(towns.getBuckets().get(1).getDocCount(), equalTo(1L));
+        parents = towns.getBuckets().get(1).getAggregations().get("parent_names");
+        assertThat(parents.getBuckets().size(), equalTo(1));
+        assertThat(parents.getBuckets().get(0).getKeyAsString(), equalTo("Bob"));
+        assertThat(parents.getBuckets().get(0).getDocCount(), equalTo(1L));
+        children = parents.getBuckets().get(0).getAggregations().get("child_docs");
+        assertThat(children.getDocCount(), equalTo(2L));
     }
 
     private static final class Control {
